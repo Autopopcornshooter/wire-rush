@@ -16,5 +16,4 @@ Invoke-Check 'import' @('--headless','--path',$projectRoot,'--editor','--import'
 Invoke-Check 'behavior' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/run.gd','--','--test')
 Invoke-Check 'traversal' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/traversal.gd','--','--test')
 Invoke-Check 'settings-aim' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/settings_aim.gd','--','--test')
-Invoke-Check 'dual-wires' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/dual_wires.gd','--','--test')
 Write-Output 'All validation gates passed.'

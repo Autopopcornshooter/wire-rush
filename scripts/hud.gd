@@ -56,10 +56,6 @@ func rebuild_buttons() -> void:
  elif game.phase == "settings":
   add_button("한국어", Rect2(590, 155, 150, 46), func(): game.set_language("ko"), game.preferences.language == "ko")
   add_button("English", Rect2(755, 155, 150, 46), func(): game.set_language("en"), game.preferences.language == "en")
-  add_button("AUTO AIM", Rect2(530, 220, 180, 46), func(): game.set_aim_mode("auto"), game.preferences.aim_mode == "auto")
-  add_button("MANUAL AIM", Rect2(725, 220, 180, 46), func(): game.set_aim_mode("manual"), game.preferences.aim_mode == "manual")
-  add_button("SINGLE WIRE", Rect2(530, 285, 180, 46), func(): game.set_wire_mode("single"), game.preferences.wire_mode == "single")
-  add_button("DUAL WIRES", Rect2(725, 285, 180, 46), func(): game.set_wire_mode("dual"), game.preferences.wire_mode == "dual")
   add_button("BACK   /   ESC", Rect2(520, 585, 240, 46), game.close_settings)
  elif game.phase == "upgrade":
   for i in range(game.choices.size()):
@@ -92,18 +88,18 @@ func _draw() -> void:
   panel(Rect2(310, 72, 660, 586))
   label_at(Vector2(350, 125), "SETTINGS", 30, cyan)
   label_at(Vector2(350, 187), "LANGUAGE", 20)
-  label_at(Vector2(350, 252), "AIM MODE", 20)
-  label_at(Vector2(350, 317), "WIRE MODE", 20)
-  label_at(Vector2(350, 375), "Auto: LMB / RMB selects a nearby left / right anchor.", 16, muted, 580)
-  label_at(Vector2(350, 408), "Manual: point at a building wall, then hold either button.", 16, white, 580)
-  label_at(Vector2(350, 447), "Dual: LMB and RMB fire and hold separate wires." if game.preferences.wire_mode == "dual" else "Single: the other button replaces your current wire.", 16, cyan, 580)
-  label_at(Vector2(350, 480), "Release one button to drop only that wire." if game.preferences.wire_mode == "dual" else "While swinging, aim elsewhere and press the other button.", 16, white, 580)
-  label_at(Vector2(350, 513), "Hold both buttons to reel both wires. E remains twin dash." if game.preferences.wire_mode == "dual" else "Hold to reel automatically. Release the active button to let go.", 16, muted, 580)
-  label_at(Vector2(350, 552), "Settings could not be saved. They apply for this session." if game.settings_error else "Language, aim and wire modes are saved automatically.", 14, muted, 580)
+  label_at(Vector2(350, 255), "MANUAL SINGLE WIRE", 22, cyan)
+  label_at(Vector2(350, 303), "Point at a wall or aerial obstacle; hold either mouse button.", 16, white, 580)
+  label_at(Vector2(350, 340), "The other button replaces your current wire.", 16, muted, 580)
+  label_at(Vector2(350, 387), "Last connected hook at 5m or below: safe road landing.", 16, cyan, 580)
+  label_at(Vector2(350, 424), "Above 5m: game over on road impact, even with armor.", 16, Color("ffab8f"), 580)
+  label_at(Vector2(350, 461), "Unhooked jumps are exempt. Jumping alone does not renew skating.", 16, white, 580)
+  label_at(Vector2(350, 508), "Skates reduce friction. Taller buildings also raise aerial obstacles.", 16, muted, 580)
+  label_at(Vector2(350, 552), "Settings could not be saved. They apply for this session." if game.settings_error else "Language is saved automatically.", 14, muted, 580)
   return
  if game.phase == "menu":
   panel(Rect2(42, 62, 420, 584))
-  label_at(Vector2(76, 113), "PROTOTYPE 04  /  GODOT 4", 15, cyan)
+  label_at(Vector2(76, 113), "PROTOTYPE 05  /  GODOT 4", 15, cyan)
   label_at(Vector2(72, 185), "WIRE", 68)
   label_at(Vector2(72, 254), "RUSH", 68)
   label_at(Vector2(76, 298), "Find your rhythm above the city.", 18, muted)
@@ -112,11 +108,11 @@ func _draw() -> void:
   label_at(Vector2(76, 405), t("Best distance  %04d m") % game.best, 17)
   panel(Rect2(750, 457, 465, 190), 0.88)
   label_at(Vector2(776, 493), "YOUR FIRST SWING", 17, cyan)
-  label_at(Vector2(776, 528), "Point at a wall; hold LMB or RMB to hook there." if game.preferences.aim_mode == "manual" else "Hold LMB / RMB to connect left / right.", 17, white, 418)
+  label_at(Vector2(776, 528), "Point at a wall or aerial obstacle to hook there.", 17, white, 418)
   label_at(Vector2(776, 556), "Hold the mouse button to reel and climb automatically.", 17, white, 418)
-  label_at(Vector2(776, 584), "Release both to fly. Space jumps from the road." if game.preferences.wire_mode == "dual" else "Let go to fly. Space jumps from the road.", 17, white, 418)
-  label_at(Vector2(776, 620), "Practice includes skates, twin launch & rescue.", 15, muted, 418)
-  label_at(Vector2(76, 630), t("MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM") + " / " + t("DUAL WIRES" if game.preferences.wire_mode == "dual" else "SINGLE WIRE"), 14, cyan, 350)
+  label_at(Vector2(776, 584), "Connect at 5m or below before landing on the road.", 17, white, 418)
+  label_at(Vector2(776, 620), "Practice: skates included; high-hook landings still end the run.", 15, muted, 418)
+  label_at(Vector2(76, 630), "MANUAL SINGLE WIRE", 14, cyan, 350)
   return
  panel(Rect2(24, 22, 274, 107))
  label_at(Vector2(43, 50), "PRACTICE / AUTO RESCUE" if game.training else "DISTANCE / PERSONAL BEST", 13, cyan)
@@ -131,60 +127,41 @@ func _draw() -> void:
  draw_rect(Rect2(42, 188, 196, 4), Color("263e53"))
  draw_rect(Rect2(42, 188, 196 * clampf(game.xp / Rules.xp_required(game.level), 0, 1), 4), cyan)
  label_at(Vector2(42, 219), t("SKATES  %d   /   ARMOR  %d") % [game.rider.tiers.skates, game.rider.armor_charges], 14, muted, 198)
- var twin_status: String = t("LOCKED")
- if game.rider.tiers.launcher > 0:
-  if game.rider.launch_cooldown > 0:
-   twin_status = "%.1fs" % game.rider.launch_cooldown
-  else:
-   twin_status = t("READY [E]") if game.twin_ready else t("NEED TWO ANCHORS")
- label_at(Vector2(42, 246), t("TWIN") + "  " + twin_status, 14, cyan, 198)
+ label_at(Vector2(42, 246), t("BUILDING HEIGHT  +%d m") % Rules.BUILDING_BONUS[game.rider.tiers.high], 14, cyan, 198)
  label_at(Vector2(42, 272), t("SKATE LANDINGS  %d") % game.rider.slides, 14, muted, 198)
- label_at(Vector2(325, 51), t("MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM") + " / " + t("DUAL WIRES" if game.preferences.wire_mode == "dual" else "SINGLE WIRE"), 16, cyan, 500)
- if game.rider.dual_mode:
-  for side in [-1, 1]:
-   var wire: Dictionary = game.rider.dual_wires.get(side, {})
-   var status: String = "READY" if wire.is_empty() else ("CONNECTED" if wire.connected else "FIRING")
-   label_at(Vector2(325 if side == -1 else 510, 76), ("LMB / " if side == -1 else "RMB / ") + t(status), 14, cyan if side == -1 else Color("ffca8d"), 175)
+ label_at(Vector2(325, 51), "MANUAL SINGLE WIRE", 16, cyan, 500)
  if game.phase == "playing":
-  if game.preferences.aim_mode == "manual":
-   var color: Color = cyan if game.aim_preview.get("valid", false) else Color("ffab8f")
-   var cursor: Vector2 = game.aim_screen
-   draw_arc(cursor, 12, 0, TAU, 24, color, 2, true)
-   draw_line(cursor - Vector2(21, 0), cursor - Vector2(6, 0), color, 2)
-   draw_line(cursor + Vector2(6, 0), cursor + Vector2(21, 0), color, 2)
-   draw_line(cursor - Vector2(0, 21), cursor - Vector2(0, 6), color, 2)
-   draw_line(cursor + Vector2(0, 6), cursor + Vector2(0, 21), color, 2)
-   var caption: String = t(game.aim_preview.get("reason", "AIM AT A BUILDING"))
-   if game.aim_preview.get("valid", false):
-    caption += " / %.1f m" % game.aim_preview.distance
-   var caption_pos := Vector2(clampf(cursor.x + 25, 25, 920), clampf(cursor.y - 24, 150, 570))
-   panel(Rect2(caption_pos - Vector2(8, 25), Vector2(334, 38)), 0.86)
-   label_at(caption_pos, caption, 15, color, 318)
-   for attached in game.rider.attached_anchors():
-    if game.camera.is_position_behind(attached.global_position):
-     continue
-    var locked: Vector2 = game.camera.unproject_position(attached.global_position)
-    draw_circle(locked, 5, cyan)
-    draw_arc(locked, 10, 0, TAU, 24, cyan, 2, true)
-  for side in [-1, 1]:
-   var target: Node3D = game.left_target if side == -1 else game.right_target
-   if is_instance_valid(target) and not game.camera.is_position_behind(target.global_position):
-    var p: Vector2 = game.camera.unproject_position(target.global_position)
-    var color: Color = cyan if side == -1 else Color("ffca8d")
-    draw_arc(p, 18, 0, TAU, 28, color, 2, true)
-    draw_line(p + Vector2(-23, 0), p + Vector2(-13, 0), color, 2)
-    draw_line(p + Vector2(13, 0), p + Vector2(23, 0), color, 2)
-    label_at(p + Vector2(-15, -27), "LMB" if side == -1 else "RMB", 13, color)
+  var color: Color = cyan if game.aim_preview.get("valid", false) else Color("ffab8f")
+  var cursor: Vector2 = game.aim_screen
+  draw_arc(cursor, 12, 0, TAU, 24, color, 2, true)
+  draw_line(cursor - Vector2(21, 0), cursor - Vector2(6, 0), color, 2)
+  draw_line(cursor + Vector2(6, 0), cursor + Vector2(21, 0), color, 2)
+  draw_line(cursor - Vector2(0, 21), cursor - Vector2(0, 6), color, 2)
+  draw_line(cursor + Vector2(0, 6), cursor + Vector2(0, 21), color, 2)
+  var caption: String = t(game.aim_preview.get("reason", "AIM AT A BUILDING"))
+  if game.aim_preview.get("valid", false):
+   caption += " / %.1f m" % game.aim_preview.distance
+   caption += t(" / HEIGHT %.1fm") % game.aim_preview.surface_point.y
+  var caption_pos := Vector2(clampf(cursor.x + 25, 25, 920), clampf(cursor.y - 24, 150, 570))
+  panel(Rect2(caption_pos - Vector2(8, 25), Vector2(334, 38)), 0.86)
+  label_at(caption_pos, caption, 15, color, 318)
+  for attached in [game.rider.anchor]:
+   if not is_instance_valid(attached) or game.camera.is_position_behind(attached.global_position):
+    continue
+   var locked: Vector2 = game.camera.unproject_position(attached.global_position)
+   draw_circle(locked, 5, cyan)
+   draw_arc(locked, 10, 0, TAU, 24, cyan, 2, true)
   if game.rider.mode in ["swing", "air"]:
-   label_at(Vector2(460, 563), "LAND TO SKATE" if game.rider.tiers.skates > 0 else "LAND TO STOP — Space to jump again", 17, cyan)
+   var landing_text: String = t("JUMP LANDING EXEMPT") if game.rider.jump_exempt else t("LAST HOOK %.1fm / LANDING %s") % [game.rider.last_anchor_height, t("SAFE" if game.rider.landing_safe() else "FATAL")]
+   label_at(Vector2(425, 563), landing_text, 17, cyan if game.rider.landing_safe() else Color("ffab8f"), 500)
   if game.rider.invincible > 0:
    panel(Rect2(475, 85, 330, 44))
-   label_at(Vector2(497, 114), t("SHIELD  /  %.1f s") % game.rider.invincible, 20, cyan, 294)
+   label_at(Vector2(497, 114), t("OBSTACLE SHIELD / %.1f s") % game.rider.invincible, 20, cyan, 294)
   if game.rider.mode == "slide":
    panel(Rect2(24, 304, 310, 54))
-   label_at(Vector2(42, 339), t("SKATE  /  %.1f s LEFT") % game.rider.slide_left, 20, cyan, 274)
+   label_at(Vector2(42, 339), t("FRICTION %.2f / %.1f m/s") % [Rules.SKATE_FRICTION[game.rider.tiers.skates], Vector2(game.rider.velocity.x, game.rider.velocity.z).length()], 20, cyan, 274)
  panel(Rect2(24, 651, 1232, 47), 0.87)
- label_at(Vector2(44, 681), "HOLD LMB / RMB  hook + reel     SPACE  jump     A / D  steer     E  twin launch     ESC  pause     R  restart", 16, muted, 1190)
+ label_at(Vector2(44, 681), "HOLD LMB / RMB  hook + reel     SPACE  jump     A / D  steer     ESC  pause     R  restart", 16, muted, 1190)
  if game.notice_left > 0 and game.phase == "playing":
   panel(Rect2(270, 593, 740, 40), 0.85)
   label_at(Vector2(290, 620), game.locale.message(game.message), 17, cyan, 700)
@@ -199,7 +176,7 @@ func _draw() -> void:
   label_at(Vector2(440, 321), game.locale.message(game.death_reason), 16, muted, 400)
   label_at(Vector2(440, 360), t("Top speed  %.1f m/s   /   Blocks  %d") % [game.rider.high_speed, int(game.distance / 64)], 19, white, 400)
   label_at(Vector2(440, 397), t("Skate landings  %d   /   Level  %d") % [game.rider.slides, game.level], 19, white, 400)
-  label_at(Vector2(440, 430), t("Skates %d / Twin %d / Armor %d / High %d") % [game.rider.tiers.skates, game.rider.tiers.launcher, game.rider.tiers.armor, game.rider.tiers.high], 16, muted, 400)
+  label_at(Vector2(440, 430), t("Skates %d / Armor %d / Buildings %d") % [game.rider.tiers.skates, game.rider.tiers.armor, game.rider.tiers.high], 16, muted, 400)
  elif game.phase == "upgrade":
   label_at(Vector2(440, 207), "CHOOSE YOUR NEXT EDGE", 30, cyan)
   label_at(Vector2(440, 247), t("Level %d  /  physics and timers are paused") % (game.level + 1), 18, muted)

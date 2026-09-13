@@ -22,7 +22,10 @@ func run() -> void:
   await physics_frame
   var r: CharacterBody3D = game.rider
   if r.anchor == null and r.position.y > 2.2:
-   if r.fire(-1 if hooks % 2 == 0 else 1):
+   var side: int = -1 if hooks % 2 == 0 else 1
+   var point := Vector3(side * 7.4, 18, r.position.z - 10)
+   var selection: Dictionary = game.city.manual_target(r.position, r.position, (point - r.position).normalized(), r.reach(), r.get_rid())
+   if r.fire_manual(selection, side):
     hooks += 1
   if r.mode == "ground":
    r.jump()
@@ -34,7 +37,7 @@ func run() -> void:
   if frame % 120 == 0:
    samples.append({"t": frame / 60.0, "z": snappedf(r.position.z, 0.1), "y": snappedf(r.position.y, 0.1), "speed": snappedf(r.velocity.length(), 0.1), "mode": r.mode})
  print("TRAVERSAL ", JSON.stringify({"distance": game.distance, "rescues": crashes, "hooks": hooks, "samples": samples}))
- var passed: bool = crashes == 0 and hooks >= 10 and game.distance > 250
+ var passed: bool = crashes == 0 and game.rider.mode != "dead" and hooks >= 10 and game.distance > 250
  game.free()
  await process_frame
  quit(0 if passed else 1)
