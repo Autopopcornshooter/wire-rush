@@ -3,6 +3,15 @@ const City = preload("res://scripts/city.gd")
 const Rider = preload("res://scripts/rider.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Rules = preload("res://scripts/rules.gd")
+const Preferences = preload("res://scripts/preferences.gd")
+const Locale = preload("res://scripts/localization.gd")
+var preferences = Preferences.new()
+var locale = Locale.new()
+var settings_return: String = "menu"
+var settings_error: bool = false
+var aim_screen := Vector2(640, 260)
+var aim_preview: Dictionary = {}
+var pending_mouse: Array[Dictionary] = []
 var city: Node3D
 var rider: CharacterBody3D
 var camera: Camera3D
@@ -22,6 +31,7 @@ var left_target: Node3D
 var right_target: Node3D
 var audio: AudioStreamPlayer
 var demo_time: float = 0
+var demo_hooks: int = 0
 var capture_done: bool = false
 var demo: bool = false
 var rng := RandomNumberGenerator.new()
@@ -31,9 +41,16 @@ func _ready() -> void:
  rng.randomize()
  save_enabled = not "--test" in OS.get_cmdline_user_args()
  if save_enabled:
+  preferences.load_file()
   var save := ConfigFile.new()
   if save.load("user://records.cfg") == OK:
    best = float(save.get_value("records", "distance", 0))
+ for arg in OS.get_cmdline_user_args():
+  if arg == "--english":
+   preferences.language = "en"
+  elif arg == "--manual":
+   preferences.aim_mode = "manual"
+ locale.language = preferences.language
  setup_environment()
  create_world(false)
  var layer := CanvasLayer.new()
@@ -48,6 +65,8 @@ func _ready() -> void:
  demo = "--demo" in OS.get_cmdline_user_args()
  if demo:
   start_run(true)
+ if "--settings" in OS.get_cmdline_user_args():
+  open_settings()
 
 func setup_environment() -> void:
  var world := WorldEnvironment.new()
@@ -84,6 +103,7 @@ func create_world(practice: bool) -> void:
  if is_instance_valid(city):
   city.free()
  city = City.new()
+ city.locale = locale
  city.practice = practice
  add_child(city)
  city.update_chunks(0)
@@ -96,6 +116,8 @@ func create_world(practice: bool) -> void:
  rider.reset(practice)
 
 func start_run(practice: bool) -> void:
+ pending_mouse.clear()
+ aim_preview.clear()
  training = practice
  create_world(practice)
  distance = 0
@@ -106,16 +128,19 @@ func start_run(practice: bool) -> void:
  camera.position = rider.position + Vector3(0, 4.5, 12)
  camera.look_at(rider.position + Vector3(0, 1, -8))
  hud.rebuild_buttons()
- show_notice("HOLD LMB / RMB + SHIFT — reel into your first swing")
+ show_notice("AIM AT A WALL — hold to hook; other button to change point" if preferences.aim_mode == "manual" else "HOLD LMB / RMB + SHIFT — reel into your first swing")
 
 func _input(event: InputEvent) -> void:
  if event is InputEventKey and event.pressed and not event.echo:
   if event.keycode == KEY_ESCAPE:
    if phase == "playing":
     phase = "paused"
+    pending_mouse.clear()
     hud.rebuild_buttons()
    elif phase == "paused":
     resume()
+   elif phase == "settings":
+    close_settings()
    return
   if phase == "menu":
    if event.keycode == KEY_ENTER:
@@ -134,17 +159,18 @@ func _input(event: InputEvent) -> void:
     rider.jump()
    elif event.keycode == KEY_E:
     rider.launch()
+ if event is InputEventMouseMotion:
+  aim_screen = event.position
  if event is InputEventMouseButton and phase == "playing":
   var side: int = -1 if event.button_index == MOUSE_BUTTON_LEFT else (1 if event.button_index == MOUSE_BUTTON_RIGHT else 0)
   if side != 0:
-   if event.pressed:
-    rider.fire(side)
-   elif rider.wire_side == side:
-    rider.release_wire()
+   aim_screen = event.position
+   pending_mouse.append({"side": side, "pressed": event.pressed, "origin": camera.project_ray_origin(event.position), "direction": camera.project_ray_normal(event.position)})
 
 func _notification(what: int) -> void:
  if what == NOTIFICATION_APPLICATION_FOCUS_OUT and phase == "playing" and not demo:
   phase = "paused"
+  pending_mouse.clear()
   if is_instance_valid(hud):
    hud.rebuild_buttons()
 
@@ -158,16 +184,25 @@ func _physics_process(delta: float) -> void:
    countdown = 1.0
  if phase != "playing":
   return
+ process_mouse_commands()
  var steer: float = float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A))
  var reel: bool = Input.is_physical_key_pressed(KEY_SHIFT)
  if demo:
   demo_time += delta
   if rider.anchor == null and rider.position.y > 2:
-   rider.fire(-1 if int(demo_time / 2) % 2 == 0 else 1)
+   var side: int = -1 if demo_hooks % 2 == 0 else 1
+   if preferences.aim_mode == "manual":
+    var point := Vector3(side * 7.4, 12, rider.position.z - 10)
+    aim_screen = camera.unproject_position(point)
+    var target: Dictionary = city.manual_target(rider.position, camera.position, (point - camera.position).normalized(), rider.reach(), rider.get_rid())
+    if rider.fire_manual(target, side):
+     demo_hooks += 1
+   elif rider.fire(side):
+    demo_hooks += 1
   reel = true
   if rider.mode == "ground":
    rider.jump()
-  if rider.mode == "swing" and rider.position.z < rider.anchor.global_position.z - 3:
+  if rider.mode == "swing" and rider.position.z < rider.anchor.global_position.z - 1:
    rider.release_wire()
  rider.simulate(delta, steer, reel)
  var previous: float = distance
@@ -184,8 +219,7 @@ func _physics_process(delta: float) -> void:
   rider.position.z += 2048
   rider.safe_z += 2048
   camera.position.z += 2048
- left_target = city.find_anchor(rider.position, -1, rider.reach(), rider.get_rid())
- right_target = city.find_anchor(rider.position, 1, rider.reach(), rider.get_rid())
+ update_targets()
  if not training and xp >= Rules.xp_required(level) and phase == "playing":
   open_upgrades()
  notice_left = maxf(0, notice_left - delta)
@@ -194,7 +228,7 @@ func _process(delta: float) -> void:
  if not is_instance_valid(rider):
   return
  var desired: Vector3 = rider.position + Vector3(-rider.position.x * 0.65, 4.5, 12)
- if phase == "menu":
+ if phase == "menu" or (phase == "settings" and settings_return == "menu"):
   desired = Vector3(3, 9, 15)
  camera.position = camera.position.lerp(desired, 1.0 - exp(-7.0 * delta))
  camera.look_at(rider.position + Vector3(0, 0.8, -9))
@@ -205,6 +239,66 @@ func _process(delta: float) -> void:
   if (demo and demo_time >= 1.8) or (not demo and Time.get_ticks_msec() > 2200):
    capture_done = true
    capture.call_deferred()
+
+func process_mouse_commands() -> void:
+ for command in pending_mouse:
+  if command.pressed:
+   if preferences.aim_mode == "manual":
+    var selection: Dictionary = city.manual_target(rider.position, command.origin, command.direction, rider.reach(), rider.get_rid())
+    rider.fire_manual(selection, command.side)
+   else:
+    rider.fire(command.side)
+  elif rider.wire_side == command.side:
+   rider.release_wire()
+ pending_mouse.clear()
+
+func update_targets() -> void:
+ if preferences.aim_mode == "manual":
+  left_target = null
+  right_target = null
+  aim_preview = city.manual_target(rider.position, camera.project_ray_origin(aim_screen), camera.project_ray_normal(aim_screen), rider.reach(), rider.get_rid())
+ else:
+  aim_preview.clear()
+  left_target = city.find_anchor(rider.position, -1, rider.reach(), rider.get_rid())
+  right_target = city.find_anchor(rider.position, 1, rider.reach(), rider.get_rid())
+
+func open_settings() -> void:
+ if phase not in ["menu", "paused"]:
+  return
+ settings_return = phase
+ pending_mouse.clear()
+ phase = "settings"
+ hud.rebuild_buttons()
+
+func close_settings() -> void:
+ if phase != "settings":
+  return
+ phase = settings_return
+ pending_mouse.clear()
+ hud.rebuild_buttons()
+
+func set_language(language: String) -> void:
+ if language not in ["ko", "en"]:
+  return
+ preferences.language = language
+ locale.language = language
+ city.refresh_language()
+ save_preferences()
+ hud.rebuild_buttons()
+
+func set_aim_mode(aim_mode: String) -> void:
+ if aim_mode not in ["auto", "manual"]:
+  return
+ preferences.aim_mode = aim_mode
+ pending_mouse.clear()
+ aim_preview.clear()
+ left_target = null
+ right_target = null
+ save_preferences()
+ hud.rebuild_buttons()
+
+func save_preferences() -> void:
+ settings_error = save_enabled and preferences.save_file() != OK
 
 func capture() -> void:
  await RenderingServer.frame_post_draw
@@ -220,12 +314,14 @@ func gameplay_released() -> bool:
  return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_E) and not Input.is_physical_key_pressed(KEY_SHIFT)
 
 func resume() -> void:
+ pending_mouse.clear()
  rider.release_wire(false)
  phase = "countdown"
  countdown = 1
  hud.rebuild_buttons()
 
 func return_menu() -> void:
+ pending_mouse.clear()
  phase = "menu"
  create_world(false)
  hud.rebuild_buttons()
@@ -252,6 +348,7 @@ func open_upgrades() -> void:
   # All abilities maxed: keep XP as a result statistic; do not open an empty modal.
   return
  phase = "upgrade"
+ pending_mouse.clear()
  hud.rebuild_buttons()
  tone(620, 0.13)
 
@@ -265,6 +362,7 @@ func choose(index: int) -> void:
 
 func end_run(reason: String) -> void:
  phase = "dead"
+ pending_mouse.clear()
  death_reason = reason
  if not training and distance > best:
   best = distance

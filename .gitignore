@@ -4,6 +4,7 @@ tools/local/
 validation/*.log
 validation/*.png
 validation/*.png.import
+docs/screenshots/*.png.import
 *.tmp
 .DS_Store
 export_credentials.cfg

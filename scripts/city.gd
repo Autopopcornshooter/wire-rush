@@ -1,5 +1,6 @@
 extends Node3D
 const Rules = preload("res://scripts/rules.gd")
+const Locale = preload("res://scripts/localization.gd")
 const LENGTH: float = 64.0
 const TYPES: Array[String] = ["FREE FLOW", "HURDLES", "LOW CEILING", "LONG REACH", "LOW LINE", "RECONNECT"]
 var chunks: Dictionary = {}
@@ -9,6 +10,7 @@ var origin_offset: float = 0.0
 var high_level: int = 0
 var practice: bool = false
 var material_cache: Dictionary = {}
+var locale = Locale.new()
 
 func material(color: Color, glow: bool = false) -> StandardMaterial3D:
  var key: String = color.to_html() + str(glow)
@@ -75,7 +77,8 @@ func create_chunk(index: int) -> void:
    var z: float = -8.0 - b * 16.0
    var height: float = 17.0 + float((index * 7 + b * 3 + side) % 5) * 3.0
    var col := Color("233c56") if (index + b) % 2 == 0 else Color("294860")
-   box(chunk, Vector3(side * 11.4, height * 0.5, z), Vector3(8, height, 14), col, true)
+   var building := box(chunk, Vector3(side * 11.4, height * 0.5, z), Vector3(8, height, 14), col, true)
+   building.set_meta("hookable", true)
    box(chunk, Vector3(side * 7.32, 9, z), Vector3(0.08, 0.15, 12), Color("63b2bb"), false, true)
    for floor_index in range(2, int(height / 3)):
     box(chunk, Vector3(side * 7.34, floor_index * 3.0, z), Vector3(0.06, 0.7, 10), Color("39566e"))
@@ -105,9 +108,13 @@ func create_chunk(index: int) -> void:
   orb.set_meta("xp", 40 if kind == 4 else 15)
   pickups.append(orb)
  var sign := Label3D.new()
+ sign.name = "RouteSign"
  chunk.add_child(sign)
  sign.position = Vector3(0, 15, -2)
- sign.text = "%02d / %s" % [index + 1, TYPES[kind]]
+ sign.set_meta("route", TYPES[kind])
+ sign.set_meta("index", index + 1)
+ sign.font = Locale.FONT
+ sign.text = "%02d / %s" % [index + 1, locale.text(TYPES[kind])]
  sign.font_size = 58
  sign.pixel_size = 0.014
  sign.modulate = Color("a4c9d8")
@@ -152,6 +159,39 @@ func find_anchor(from: Vector3, side: int, reach: float, exclude: RID) -> Node3D
    best = score
    selected = anchor
  return selected
+
+func refresh_language() -> void:
+ for chunk in chunks.values():
+  var sign: Label3D = chunk.get_node("RouteSign")
+  sign.text = "%02d / %s" % [sign.get_meta("index"), locale.text(sign.get_meta("route"))]
+
+func manual_target(from: Vector3, ray_origin: Vector3, direction: Vector3, reach: float, exclude: RID) -> Dictionary:
+ var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_origin + direction.normalized() * 500.0, 1)
+ query.exclude = [exclude]
+ var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+ if hit.is_empty():
+  return {"valid": false, "reason": "AIM AT A BUILDING"}
+ return validate_manual_point(from, hit.position, hit.normal, hit.collider, reach, exclude)
+
+func validate_manual_point(from: Vector3, surface_point: Vector3, normal: Vector3, surface: Node3D, reach: float, exclude: RID) -> Dictionary:
+ if not is_instance_valid(surface) or not is_ancestor_of(surface) or not surface.get_meta("hookable", false):
+  return {"valid": false, "reason": "AIM AT A BUILDING"}
+ # Keep the endpoint just outside the wall so its own surface cannot occlude the rope.
+ var point: Vector3 = surface_point + normal * 0.08
+ var result: Dictionary = {"valid": false, "point": point, "surface_point": surface_point, "normal": normal, "surface": surface, "distance": from.distance_to(point)}
+ if point.y < 2.5:
+  result.reason = "AIM HIGHER ON THE WALL"
+ elif from.distance_to(point) > reach:
+  result.reason = "OUT OF RANGE"
+ else:
+  var line := PhysicsRayQueryParameters3D.create(from, point, 1)
+  line.exclude = [exclude]
+  if not get_world_3d().direct_space_state.intersect_ray(line).is_empty():
+   result.reason = "WIRE PATH BLOCKED"
+  else:
+   result.valid = true
+   result.reason = "POINT READY"
+ return result
 
 func collect(pos: Vector3) -> int:
  var gained: int = 0

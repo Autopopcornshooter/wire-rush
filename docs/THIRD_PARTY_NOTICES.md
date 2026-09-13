@@ -28,4 +28,10 @@ Complete third-party notices for the engine: https://github.com/godotengine/godo
 
 The game's geometry, UI layout and synthesized sound effects are authored in
 this repository. No Kenney/Quaternius asset is bundled in this prototype.
-The original planning document mentions possible future assets only.
+The original planning document mentions possible future art assets only.
+
+Noto Sans KR is bundled for Korean and English text. Copyright 2014-2021
+Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. It is
+distributed under the SIL Open Font License 1.1. The complete license is
+in assets/fonts/OFL.txt (source) and FONT_LICENSE.txt (Windows distribution).
+Source: https://github.com/google/fonts/tree/main/ofl/notosanskr

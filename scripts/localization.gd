@@ -1,0 +1,113 @@
+extends RefCounted
+const FONT = preload("res://assets/fonts/ui_font.tres")
+var language: String = "ko"
+const KO: Dictionary = {
+ "START RUN   /   ENTER": "기록 도전   /   ENTER",
+ "PRACTICE   /   P": "연습 모드   /   P",
+ "QUIT": "종료",
+ "SETTINGS": "설정",
+ "BACK   /   ESC": "뒤로   /   ESC",
+ "LANGUAGE": "언어",
+ "AIM MODE": "와이어 조준 방식",
+ "AUTO AIM": "자동 조준",
+ "MANUAL AIM": "직접 조준",
+ "Select a language. Changes apply immediately.": "언어를 선택하면 바로 적용됩니다.",
+ "Choose where your next wire connects.": "다음 와이어를 걸 위치를 정하는 방식입니다.",
+ "Auto: LMB / RMB selects a nearby left / right anchor.": "자동: 좌·우 클릭으로 가까운 왼쪽·오른쪽 앵커 선택",
+ "Manual: point at a building wall, then hold either button.": "직접: 건물 벽의 원하는 지점을 가리키고 버튼 유지",
+ "While swinging, aim elsewhere and press the other button.": "스윙 중 다른 지점을 가리키고 반대 버튼으로 연결 변경",
+ "Release the active button to let go. Shift reels the wire.": "누르고 있는 버튼을 놓으면 해제, Shift로 줄 감기",
+ "Language and aim mode are saved automatically.": "언어와 조준 방식은 자동으로 저장됩니다.",
+ "Settings could not be saved. They apply for this session.": "설정을 저장하지 못했습니다. 이번 실행에만 적용됩니다.",
+ "RUN AGAIN   /   R": "다시 도전   /   R",
+ "MAIN MENU": "메인 메뉴",
+ "RESUME   /   ESC": "계속하기   /   ESC",
+ "PROTOTYPE 02  /  GODOT 4": "프로토타입 02  /  GODOT 4",
+ "Find your rhythm above the city.": "도시 위에서 나만의 스윙을 만드세요.",
+ "HOOK  >  SWING  >  RELEASE": "연결  >  스윙  >  해제",
+ "SLIDE  >  JUMP  >  RECONNECT": "슬라이드  >  점프  >  재연결",
+ "Best distance  %04d m": "최고 거리  %04d m",
+ "YOUR FIRST SWING": "첫 스윙 안내",
+ "Hold LMB / RMB to connect left / right.": "좌·우 마우스 버튼을 유지해 앵커에 연결하세요.",
+ "Point at a wall; hold LMB or RMB to hook there.": "벽을 가리키고 좌·우 버튼 중 하나를 누르세요.",
+ "Hold Shift to shorten the wire and climb.": "Shift를 누르면 줄을 감아 높이를 확보합니다.",
+ "Let go to fly. Space jumps from the road.": "버튼을 놓아 비행하세요. 지상 점프는 Space.",
+ "Practice includes skates, twin launch & rescue.": "연습 모드: 스케이트·양측 사출·자동 복구 제공",
+ "PRACTICE / AUTO RESCUE": "연습 모드 / 자동 복구",
+ "DISTANCE / PERSONAL BEST": "진행 거리 / 최고 기록",
+ "SPEED": "속도",
+ "GROUND": "달리기", "AIR": "공중", "SWING": "스윙", "LANDING": "착지 대기", "SLIDE": "슬라이드", "STUMBLE": "넘어짐", "DEAD": "종료",
+ "LV %02d   /   %d XP": "레벨 %02d   /   경험치 %d",
+ "SKATES  %d   /   ARMOR  %d": "스케이트 %d   /   방어구 %d",
+ "TWIN": "양측 사출", "LOCKED": "미획득", "READY [E]": "준비 완료 [E]",
+ "PERFECT SLIDES  %d": "완벽한 슬라이드  %d회",
+ "SOFT LANDING": "낮은 착지 충격",
+ "HARD LANDING — REEL UP": "낙하 충격 위험 — 줄을 감으세요",
+ "SLIDE  /  %02d m LEFT": "슬라이드  /  남은 거리 %02d m",
+ "LMB / RMB  hook     SHIFT  reel     SPACE  jump     A / D  steer     E  twin launch     ESC  pause     R  restart": "좌·우 클릭  연결     SHIFT  줄 감기     SPACE  점프     A / D  좌우 이동     E  양측 사출     ESC  일시정지     R  재시작",
+ "TAKE A BREATH": "잠시 쉬어 가세요",
+ "RUN COMPLETE": "이번 도전 결과",
+ "Top speed  %.1f m/s   /   Blocks  %d": "최고 속도 %.1f m/s   /   통과 구간 %d",
+ "Perfect slides  %d   /   Level  %d": "완벽한 슬라이드 %d회   /   레벨 %d",
+ "Skates %d / Twin %d / Armor %d / High %d": "스케이트 %d / 사출 %d / 방어 %d / 고층 %d",
+ "CHOOSE YOUR NEXT EDGE": "다음 능력을 선택하세요",
+ "Level %d  /  physics and timers are paused": "레벨 %d  /  이동과 재사용 시간이 정지되었습니다",
+ "READY  /  %d": "준비  /  %d",
+ "Release all gameplay buttons to continue": "조작 버튼을 모두 놓으면 다시 시작합니다",
+ "ROLLER SKATES": "롤러스케이트",
+ "TWIN LAUNCH": "양측 사출 장치",
+ "IMPACT ARMOR": "충격 방어구",
+ "HIGH NETWORK": "고층 연결망",
+ "LONGER WIRE": "긴 와이어",
+ "FAST REEL": "빠른 줄 감기",
+ "FAST HOOK": "빠른 갈고리",
+ "HIGH JUMP": "높은 점프",
+ "Time your release near the ground. Carry speed into a slide.": "바닥 근처에서 줄을 놓으면 속도를 유지하며 슬라이드합니다.",
+ "Press E with two valid anchors. Launch forward; 10s cooldown.": "양쪽 앵커가 있을 때 E로 전방 사출. 재사용 대기 10초.",
+ "Survive one more hard collision. Refills one charge.": "치명 충돌을 한 번 더 견딥니다. 충전 1회 보충.",
+ "Future blocks gain optional higher anchors. Low routes stay.": "앞으로 생성되는 구간에 높은 앵커 추가. 낮은 경로는 유지됩니다.",
+ "+10% wire reach. Connect to a more distant anchor.": "사거리 +10%. 더 먼 앵커에 연결할 수 있습니다.",
+ "+15% reel speed. Hold Shift to tighten your swing.": "줄 감기 속도 +15%. Shift로 스윙 반경을 줄이세요.",
+ "+20% hook speed. Recover sooner after firing.": "갈고리 속도 +20%. 더 빨리 연결해 추락을 피하세요.",
+ "+10% jump height. More room to reconnect.": "점프 높이 +10%. 재연결할 여유를 확보합니다.",
+ "HOLD LMB / RMB + SHIFT — reel into your first swing": "좌·우 클릭 + Shift 유지 — 줄을 감아 첫 스윙을 시작하세요",
+ "AIM AT A WALL — hold to hook; other button to change point": "벽을 가리키고 버튼 유지 — 다른 지점을 조준하고 반대 버튼으로 변경",
+ "NO ANCHOR IN RANGE — jump or try the other side": "연결 가능한 앵커 없음 — 점프하거나 반대편을 시도하세요",
+ "HOOK FIRED — hold to swing; Shift to reel": "갈고리 발사 — 버튼 유지로 스윙, Shift로 줄 감기",
+ "MANUAL HOOK FIRED — position locked until the next shot": "직접 연결 — 다음 발사 전까지 선택한 지점을 유지합니다",
+ "RECONNECT — hold a mouse button in the air": "재연결 — 공중에서 마우스 버튼을 유지하세요",
+ "TWIN LAUNCH NEEDS TWO FORWARD ANCHORS": "양측 사출에는 전방 양쪽 앵커가 필요합니다",
+ "WIRE BLOCKED — disconnected": "줄 경로가 막혀 연결이 해제되었습니다",
+ "SLIDE FINISHED — jump to swing again": "슬라이드 종료 — 점프해 스윙을 이어 가세요",
+ "RELEASE NOW — slide window": "지금 버튼을 놓으세요 — 슬라이드 기회",
+ "PERFECT SLIDE — Space to jump / mouse to reconnect": "완벽한 슬라이드 — Space 점프 / 마우스 재연결",
+ "STUMBLED — jump before hooking; release near the ground": "넘어짐 — 점프 후 연결하고, 바닥 근처에서 줄을 놓으세요",
+ "ARMOR SAVED YOU": "방어구가 충돌을 막았습니다",
+ "PRACTICE RESCUE": "연습 모드 자동 복구",
+ "HEAD-ON COLLISION": "정면 충돌",
+ "MISSED THE ROAD": "도로 밖으로 추락",
+ "HARD LANDING": "강한 착지 충격",
+ "m/s impact": "m/s 충격",
+ "AIM AT A BUILDING": "건물 벽을 조준하세요",
+ "OUT OF RANGE": "사거리 초과",
+ "WIRE PATH BLOCKED": "줄 경로가 막혔습니다",
+ "AIM HIGHER ON THE WALL": "벽의 더 높은 곳을 조준하세요",
+ "POINT READY": "연결 가능한 지점",
+ "FREE FLOW": "자유 스윙", "HURDLES": "낮은 차단물", "LOW CEILING": "상부 장애물", "LONG REACH": "넓은 연결 간격", "LOW LINE": "저공 경로", "RECONNECT": "재도약 구간",
+}
+
+func text(english: String) -> String:
+ if language != "ko":
+  return english
+ return str(KO.get(english, english))
+
+func message(english: String) -> String:
+ if language != "ko":
+  return english
+ if KO.has(english):
+  return str(KO[english])
+ if english.begins_with("PRACTICE RESCUE / "):
+  return text("PRACTICE RESCUE") + " / " + message(english.trim_prefix("PRACTICE RESCUE / "))
+ if english.begins_with("HARD LANDING  / "):
+  return english.replace("HARD LANDING", text("HARD LANDING")).replace("m/s impact", text("m/s impact"))
+ return english

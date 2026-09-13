@@ -90,16 +90,40 @@ func fire(side: int) -> bool:
  if target == null:
   notice.emit("NO ANCHOR IN RANGE — jump or try the other side")
   return false
+ attach(target, side)
+ notice.emit("HOOK FIRED — hold to swing; Shift to reel")
+ return true
+
+func fire_manual(selection: Dictionary, side: int) -> bool:
+ if mode in ["dead", "stumble", "landing"] or launch_left > 0:
+  return false
+ if not selection.get("valid", false):
+  notice.emit(selection.get("reason", "AIM AT A BUILDING"))
+  return false
+ var checked: Dictionary = city.validate_manual_point(global_position, selection.surface_point, selection.normal, selection.surface, reach(), get_rid())
+ if not checked.valid:
+  notice.emit(checked.reason)
+  return false
+ release_wire(false)
+ var point := Node3D.new()
+ checked.surface.add_child(point)
+ point.global_position = checked.point
+ point.set_meta("manual", true)
+ attach(point, side)
+ notice.emit("MANUAL HOOK FIRED — position locked until the next shot")
+ return true
+
+func attach(target: Node3D, side: int) -> void:
  anchor = target
  wire_side = side
  hook_duration = global_position.distance_to(anchor.global_position) / (Rules.HOOK_SPEED * (1.0 + tiers.hook * 0.2))
  hook_left = hook_duration
- notice.emit("HOOK FIRED — hold to swing; Shift to reel")
- return true
 
 func release_wire(record_input: bool = true) -> void:
  if record_input and is_instance_valid(anchor):
   released_ago = 0
+ if is_instance_valid(anchor) and anchor.get_meta("manual", false):
+  anchor.queue_free()
  anchor = null
  wire_side = 0
  hook_left = 0
