@@ -85,7 +85,7 @@ func create_chunk(index: int) -> void:
     var window := box(windows, Vector3(-side * 4.06, floor_index * 3, 0), Vector3(0.06, 0.7, 10), Color("39566e"))
     window.set_meta("floor_height", floor_index * 3)
    resize_building(building)
-   # A continuous 5m reference stripe helps deliberate low-hook approaches.
+   # A continuous 5m stripe helps judge player height before releasing.
    box(chunk, Vector3(side * 7.32, 5, z), Vector3(0.08, 0.1, 12), Color("63b2bb"), false, true)
  for stripe in range(8):
   box(chunk, Vector3(0, 0.025, -stripe * 8 - 4), Vector3(0.08, 0.035, 3), Color("45627a"))

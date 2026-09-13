@@ -11,7 +11,7 @@ func snapshot(name: String) -> void:
  game.update_targets()
  await process_frame
  await RenderingServer.frame_post_draw
- var result: Error = root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://validation/v050-" + name + ".png"))
+ var result: Error = root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://validation/v051-" + name + ".png"))
  print(name, " capture=", result)
 func frames(count: int) -> void:
  for i in range(count):
@@ -42,10 +42,11 @@ func run() -> void:
   game.start_run(false)
   game.rider.upgrade("skates")
   await physics_frame
-  var point := Vector3(-7.4, height, -8)
+  var point := Vector3(-7.4, 18, -8)
   var selection: Dictionary = game.city.manual_target(game.rider.position, game.rider.position, (point - game.rider.position).normalized(), 30, game.rider.get_rid())
   game.rider.fire_manual(selection, -1)
   await frames(20)
+  game.rider.position.y = height
   game.rider.release_wire()
   game.rider.position = Vector3(0, 0.9, -4)
   game.rider.velocity = Vector3(0, -20, -14)

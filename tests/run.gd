@@ -34,7 +34,8 @@ func hook(height: float) -> void:
  if not shoot(height):
   push_error("fixture hook not valid")
  await frames(20)
-func touchdown() -> void:
+func touchdown(release_height: float = 4.0) -> void:
+ game.rider.position.y = release_height
  game.rider.release_wire()
  game.rider.position = Vector3(0, 0.9, game.rider.position.z)
  game.rider.velocity = Vector3(0, -20, -14)
@@ -54,59 +55,99 @@ func run() -> void:
  check(not game.city.has_method("find_anchor") and not game.city.has_method("add_anchor"), "automatic anchor network is removed")
  check((game.camera.position - game.rider.position).is_equal_approx(Vector3(0, 4.5, 12)), "distant camera stays restored")
  check(shoot(18), "manual wall shot succeeds")
- check(not game.rider.hook_connected and game.rider.last_anchor_height == 0, "flying hook does not change landing history early")
+ check(not game.rider.hook_connected and game.rider.last_release_height == 0, "flying hook does not change landing history early")
  await frames(25)
- check(game.rider.hook_connected and game.rider.mode == "swing" and absf(game.rider.last_anchor_height - 18) < 0.01, "real hook connection records world height")
+ check(game.rider.hook_connected and game.rider.mode == "swing" and game.rider.last_release_height == 0, "connection alone does not record release height")
  var length: float = game.rider.rope_length
  await frames(8)
  check(game.rider.rope_length < length, "holding the wire reels automatically")
  check(game.rider.position.distance_to(game.rider.anchor.global_position) <= game.rider.rope_length + 0.1, "swing movement respects rope constraint")
  var velocity_before: Vector3 = game.rider.velocity
+ var release_y: float = game.rider.global_position.y
  game.rider.release_wire()
- check(game.rider.velocity == velocity_before and game.rider.last_anchor_height > 5, "release preserves momentum and high-hook history")
+ check(game.rider.velocity == velocity_before and game.rider.last_release_height == release_y, "release records player height and preserves momentum")
 
  for height in [4.99, 5.0, 5.01, 18.0]:
   await fixture()
-  await hook(height)
+  await hook(18)
   game.rider.invincible = 2
   game.rider.upgrade("armor")
-  await touchdown()
+  await touchdown(height)
   if height <= 5:
-   check(game.rider.mode == "slide" and game.rider.armor_charges == 1, "hook %.2fm permits skating without consuming armor" % height)
+   check(game.rider.mode == "slide" and game.rider.armor_charges == 1, "player release %.2fm from high anchor permits skating without consuming armor" % height)
   else:
-   check(game.rider.mode == "dead" and game.phase == "dead" and game.rider.armor_charges == 1, "hook %.2fm is fatal despite shield and armor" % height)
+   check(game.rider.mode == "dead" and game.phase == "dead" and game.rider.armor_charges == 1, "player release %.2fm is fatal despite shield and armor" % height)
  await fixture()
  game.rider.practice = true
- await hook(18)
- await touchdown()
- check(game.rider.mode == "dead", "practice does not hide fatal high-hook landing")
+ await hook(4)
+ await touchdown(8)
+ check(game.rider.mode == "dead", "low anchor released high is fatal even in practice")
  await fixture()
  await hook(4)
  game.rider.tiers.skates = 0
  await touchdown()
- check(game.rider.mode == "ground" and game.rider.velocity.length() < 0.1, "safe low-hook landing without skates stops")
+ check(game.rider.mode == "ground" and game.rider.velocity.length() < 0.1, "safe low release without skates stops")
  await fixture()
  await touchdown()
  check(game.rider.mode == "ground", "initial no-hook drop can land")
  await fixture()
  await hook(18)
+ game.rider.position.y = 8
  game.rider.release_wire()
+ game.rider.position.y = 3
  game.phase = "paused"
  game.resume()
- check(game.rider.last_anchor_height > 5 and not game.rider.landing_safe(), "pausing cannot erase fatal landing history")
+ check(game.rider.last_release_height > 5 and not game.rider.landing_safe(), "pausing cannot erase fatal landing history")
  await fixture()
  await hook(18)
+ game.rider.position.y = 8
  game.rider.release_wire()
  game.rider.position = Vector3(0, 4, -1)
  game.rider.velocity = Vector3.ZERO
  await physics_frame
- check(shoot(4), "new low point can be chosen after high connection")
+ check(shoot(18), "new high anchor can be chosen after a high release")
  await frames(20)
  await touchdown()
- check(game.rider.mode == "slide", "actual low reconnection replaces the previous high-hook danger")
+ check(game.rider.mode == "slide", "new wire released low replaces previous high-release danger")
  await fixture()
  await hook(4)
- check(not game.rider.fire_manual({"valid": false}, 1) and game.rider.last_anchor_height < 5, "invalid retarget does not alter last connected height")
+ check(not game.rider.fire_manual({"valid": false}, 1) and game.rider.last_release_height < 5, "invalid retarget does not alter release history")
+
+
+ await fixture()
+ await hook(18)
+ game.rider.position.y = 8
+ check(not game.rider.landing_safe(), "held wire previews current high player release as fatal")
+ game.rider.position.y = 4
+ check(game.rider.landing_safe(), "held wire previews current low player release as safe")
+ game.rider.release_wire()
+ game.rider.position.y = 12
+ check(game.rider.last_release_height == 4 and game.rider.landing_safe(), "rising after release does not change recorded height")
+ await touchdown()
+ check(game.rider.mode == "slide", "high free-flight peak after low release remains safe")
+ await fixture()
+ await hook(4)
+ game.rider.position.y = 8
+ game.rider.release_wire()
+ game.rider.position.y = 4
+ check(shoot(18), "replacement shot can fly after a high release")
+ game.rider.release_wire()
+ check(game.rider.last_release_height == 8 and not game.rider.landing_safe(), "canceling an in-flight hook cannot clear fatal release history")
+ await touchdown()
+ check(game.rider.mode == "dead", "descending below 5m without a new connected release remains fatal")
+ await fixture()
+ await hook(18)
+ game.rider.position.y = 8
+ game.phase = "paused"
+ game.resume()
+ check(game.rider.last_release_height == 8, "resume detach records player height while wire is held")
+ await fixture()
+ await hook(18)
+ game.rider.position = Vector3(0, 0.9, game.rider.position.z)
+ game.rider.velocity = Vector3(0, -20, -14)
+ game.rider.rope_length = 30
+ await frames(3)
+ check(game.rider.mode == "slide" and game.rider.last_release_height < 1, "road contact detaches a held wire at the low player contact height")
 
  var speeds: Array[float] = []
  for tier in range(1, 4):
@@ -140,15 +181,15 @@ func run() -> void:
  game.rider.stop_on_ground()
  game.rider.jump()
  await hook(18)
- await touchdown()
- check(game.rider.mode == "dead", "new high connection cancels jump exemption")
+ await touchdown(8)
+ check(game.rider.mode == "dead", "new connection cancels jump exemption and high release is fatal")
  await fixture()
  await hook(4)
  await touchdown()
  game.rider.jump()
  await hook(4)
  await touchdown()
- check(game.rider.mode == "slide" and game.rider.slides == 2, "a fresh low hook after jumping permits a new slide")
+ check(game.rider.mode == "slide" and game.rider.slides == 2, "a fresh wire released low after jumping permits a new slide")
 
  await fixture()
  game.rider.upgrade("armor")
@@ -205,9 +246,10 @@ func run() -> void:
  check(game.rider.fire_manual(selection, -1), "wire can fire into the aerial obstacle")
  await frames(20)
  check(game.rider.hook_connected and game.rider.anchor.get_parent() == hazard, "aerial hook connects through normal hook flight")
+ game.rider.position.y = 4
  game.rider.upgrade("high")
  game.rider.release_wire()
- check(game.rider.last_anchor_height > 5 and not game.rider.landing_safe(), "raising a held aerial obstacle updates landing height even on immediate release")
+ check(game.rider.last_release_height == 4 and game.rider.landing_safe(), "raising a held aerial anchor does not change player release height")
  game.rider.invincible = 0
  game.rider.position = hazard.global_position + Vector3(0, 0, 3)
  game.rider.velocity = Vector3(0, 0, -35)
@@ -220,7 +262,7 @@ func run() -> void:
  var relative: Vector3 = attached.global_position - game.rider.position
  game.city.rebase(2048)
  game.rider.position.z += 2048
- check((attached.global_position - game.rider.position).is_equal_approx(relative) and game.rider.last_anchor_height <= 5, "floating origin preserves attachment and landing height")
+ check((attached.global_position - game.rider.position).is_equal_approx(relative) and game.rider.last_release_height <= 5, "floating origin preserves attachment and landing height")
  game.city.update_chunks(640, attached)
  check(is_instance_valid(attached), "streaming protects the attached surface chunk")
  game.rider.release_wire()

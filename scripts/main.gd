@@ -122,7 +122,7 @@ func start_run(practice: bool) -> void:
  camera.position = rider.position + Rules.CAMERA_OFFSET
  camera.look_at(rider.position + Vector3(0, 1, -8))
  hud.rebuild_buttons()
- show_notice("AIM AT WALLS OR AERIAL OBSTACLES — land after a hook at 5m or below")
+ show_notice("HOOK WALLS OR AERIAL OBSTACLES — release at player height 5m or below")
 
 func _input(event: InputEvent) -> void:
  if event is InputEventKey and event.pressed and not event.echo:

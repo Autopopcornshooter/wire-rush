@@ -12,7 +12,7 @@ var hook_left: float = 0
 var hook_duration: float = 0
 var hook_connected: bool = false
 var blocked_time: float = 0
-var last_anchor_height: float = 0
+var last_release_height: float = 0
 var fresh_landing_hook: bool = false
 var jump_exempt: bool = false
 var invincible: float = 0
@@ -64,7 +64,7 @@ func reset(training: bool) -> void:
  tiers = {"skates": 1 if training else 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0}
  armor_charges = 0
  invincible = 0
- last_anchor_height = 0
+ last_release_height = 0
  fresh_landing_hook = false
  jump_exempt = false
  slides = 0
@@ -85,7 +85,6 @@ func fire_manual(selection: Dictionary, side: int) -> bool:
  var point := Node3D.new()
  checked.surface.add_child(point)
  point.global_position = checked.point
- point.set_meta("height_offset", checked.point.y - checked.surface_point.y)
  anchor = point
  wire_side = side
  hook_duration = global_position.distance_to(point.global_position) / (Rules.HOOK_SPEED * (1.0 + tiers.hook * 0.2))
@@ -97,7 +96,7 @@ func fire_manual(selection: Dictionary, side: int) -> bool:
 func release_wire() -> void:
  if is_instance_valid(anchor):
   if hook_connected:
-   last_anchor_height = anchor.global_position.y - float(anchor.get_meta("height_offset"))
+   last_release_height = global_position.y
   anchor.queue_free()
  anchor = null
  wire_side = 0
@@ -106,7 +105,8 @@ func release_wire() -> void:
  blocked_time = 0
  if mode == "swing":
   mode = "air"
- # Landing history deliberately survives release, pause and unsuccessful shots.
+ # Only detaching a connected wire records player height. Empty/in-flight releases
+ # preserve this history, including repeated cleanup and pause/resume calls.
 
 func release_side(side: int) -> void:
  if wire_side == side:
@@ -119,13 +119,14 @@ func jump() -> void:
   mode = "air"
   jump_exempt = true
   fresh_landing_hook = false
-  notice.emit("JUMP — safe landing unless you connect a new high hook")
+  notice.emit("JUMP — safe landing unless you connect a new wire")
+
+func landing_height() -> float:
+ # While attached, preview the result of releasing at the current player height.
+ return global_position.y if is_instance_valid(anchor) and hook_connected else last_release_height
 
 func landing_safe() -> bool:
- var height: float = last_anchor_height
- if is_instance_valid(anchor) and hook_connected:
-  height = anchor.global_position.y - float(anchor.get_meta("height_offset"))
- return jump_exempt or height <= Rules.SAFE_ANCHOR_HEIGHT + 0.00001
+ return jump_exempt or landing_height() <= Rules.SAFE_RELEASE_HEIGHT + 0.00001
 
 func simulate(delta: float, steer: float) -> void:
  if mode == "dead":
@@ -173,7 +174,6 @@ func integrate(dt: float, steer: float) -> void:
     rope_length = global_position.distance_to(anchor.global_position)
     fresh_landing_hook = true
     jump_exempt = false
-   last_anchor_height = anchor.global_position.y - float(anchor.get_meta("height_offset"))
    mode = "swing"
    rope_length = maxf(3, rope_length - Rules.REEL_SPEED * (1 + tiers.reel * 0.15) * dt)
    var radial: Vector3 = global_position + velocity * dt - anchor.global_position
@@ -212,11 +212,12 @@ func integrate(dt: float, steer: float) -> void:
   velocity.x = 0
 
 func land(incoming: Vector3) -> void:
+ # Road contact also detaches a held wire at the player contact height.
+ release_wire()
  if not landing_safe():
-  die("HIGH ANCHOR LANDING — last hook above 5m")
+  die("HIGH RELEASE LANDING — player released above 5m")
   return
  var can_slide: bool = fresh_landing_hook and not jump_exempt and tiers.skates > 0
- release_wire()
  fresh_landing_hook = false
  jump_exempt = false
  if can_slide and Vector2(incoming.x, incoming.z).length() > Rules.STOP_SPEED:
@@ -250,7 +251,7 @@ func hurt(reason: String) -> void:
   position = Vector3(0, 6, position.z + 5)
   velocity = Vector3(0, 0, -12)
   mode = "air"
-  last_anchor_height = 0
+  last_release_height = 0
   fresh_landing_hook = false
   jump_exempt = false
   invincible = 1

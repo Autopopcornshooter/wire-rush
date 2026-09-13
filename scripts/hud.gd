@@ -91,8 +91,8 @@ func _draw() -> void:
   label_at(Vector2(350, 255), "MANUAL SINGLE WIRE", 22, cyan)
   label_at(Vector2(350, 303), "Point at a wall or aerial obstacle; hold either mouse button.", 16, white, 580)
   label_at(Vector2(350, 340), "The other button replaces your current wire.", 16, muted, 580)
-  label_at(Vector2(350, 387), "Last connected hook at 5m or below: safe road landing.", 16, cyan, 580)
-  label_at(Vector2(350, 424), "Above 5m: game over on road impact, even with armor.", 16, Color("ffab8f"), 580)
+  label_at(Vector2(350, 387), "Release with player height at 5m or below: safe landing.", 16, cyan, 580)
+  label_at(Vector2(350, 424), "Release above 5m: fatal road landing, even with armor.", 16, Color("ffab8f"), 580)
   label_at(Vector2(350, 461), "Unhooked jumps are exempt. Jumping alone does not renew skating.", 16, white, 580)
   label_at(Vector2(350, 508), "Skates reduce friction. Taller buildings also raise aerial obstacles.", 16, muted, 580)
   label_at(Vector2(350, 552), "Settings could not be saved. They apply for this session." if game.settings_error else "Language is saved automatically.", 14, muted, 580)
@@ -110,8 +110,8 @@ func _draw() -> void:
   label_at(Vector2(776, 493), "YOUR FIRST SWING", 17, cyan)
   label_at(Vector2(776, 528), "Point at a wall or aerial obstacle to hook there.", 17, white, 418)
   label_at(Vector2(776, 556), "Hold the mouse button to reel and climb automatically.", 17, white, 418)
-  label_at(Vector2(776, 584), "Connect at 5m or below before landing on the road.", 17, white, 418)
-  label_at(Vector2(776, 620), "Practice: skates included; high-hook landings still end the run.", 15, muted, 418)
+  label_at(Vector2(776, 584), "Release the wire when your height is 5m or below.", 17, white, 418)
+  label_at(Vector2(776, 620), "Practice: skates included; releasing above 5m risks a fatal landing.", 15, muted, 418)
   label_at(Vector2(76, 630), "MANUAL SINGLE WIRE", 14, cyan, 350)
   return
  panel(Rect2(24, 22, 274, 107))
@@ -141,7 +141,7 @@ func _draw() -> void:
   var caption: String = t(game.aim_preview.get("reason", "AIM AT A BUILDING"))
   if game.aim_preview.get("valid", false):
    caption += " / %.1f m" % game.aim_preview.distance
-   caption += t(" / HEIGHT %.1fm") % game.aim_preview.surface_point.y
+   caption += t(" / TARGET %.1fm") % game.aim_preview.surface_point.y
   var caption_pos := Vector2(clampf(cursor.x + 25, 25, 920), clampf(cursor.y - 24, 150, 570))
   panel(Rect2(caption_pos - Vector2(8, 25), Vector2(334, 38)), 0.86)
   label_at(caption_pos, caption, 15, color, 318)
@@ -152,7 +152,8 @@ func _draw() -> void:
    draw_circle(locked, 5, cyan)
    draw_arc(locked, 10, 0, TAU, 24, cyan, 2, true)
   if game.rider.mode in ["swing", "air"]:
-   var landing_text: String = t("JUMP LANDING EXEMPT") if game.rider.jump_exempt else t("LAST HOOK %.1fm / LANDING %s") % [game.rider.last_anchor_height, t("SAFE" if game.rider.landing_safe() else "FATAL")]
+   var height_key: String = "PLAYER %.2fm / RELEASE NOW %s" if game.rider.hook_connected else "LAST RELEASE %.2fm / LANDING %s"
+   var landing_text: String = t("JUMP LANDING EXEMPT") if game.rider.jump_exempt else t(height_key) % [game.rider.landing_height(), t("SAFE" if game.rider.landing_safe() else "FATAL")]
    label_at(Vector2(425, 563), landing_text, 17, cyan if game.rider.landing_safe() else Color("ffab8f"), 500)
   if game.rider.invincible > 0:
    panel(Rect2(475, 85, 330, 44))
