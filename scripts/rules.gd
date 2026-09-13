@@ -8,15 +8,16 @@ const HOOK_SPEED: float = 80.0
 const ROPE_RANGE: float = 30.0
 const REEL_SPEED: float = 5.0
 const BASE_ANCHOR_HEIGHT: float = 16.0
-const SAFE_IMPACT: float = 4.0
-const RELEASE_WINDOW: float = 0.15
-const SLIDE_MIN_SPEED: float = 8.0
-const SLIDE_DISTANCES: Array[float] = [0.0, 25.0, 40.0, 60.0]
-const LAUNCH_BOOSTS: Array[float] = [0.0, 8.0, 11.0, 14.0]
+const SLIDE_MIN_SPEED: float = 0.5
+const SLIDE_SECONDS: Array[float] = [0.0, 2.0, 3.5, 5.0]
+const LAUNCH_SPEEDS: Array[float] = [0.0, 28.0, 32.0, 35.0]
+const LAUNCH_SECONDS: float = 0.65
+const RESUME_PROTECTION: float = 2.0
+const CAMERA_OFFSET := Vector3(0, 2.2, 6.0)
 const HIGH_ANCHORS: Array[float] = [0.0, 4.0, 7.0, 10.0]
 const UPGRADES: Dictionary = {
- "skates": ["ROLLER SKATES", "Time your release near the ground. Carry speed into a slide."],
- "launcher": ["TWIN LAUNCH", "Press E with two valid anchors. Launch forward; 10s cooldown."],
+ "skates": ["ROLLER SKATES", "Keep landing speed for 2 / 3.5 / 5 seconds. No release timing needed."],
+ "launcher": ["TWIN LAUNCH", "E: dash toward the midpoint of two anchors, invulnerable. 10s cooldown."],
  "armor": ["IMPACT ARMOR", "Survive one more hard collision. Refills one charge."],
  "high": ["HIGH NETWORK", "Future blocks gain optional higher anchors. Low routes stay."],
  "range": ["LONGER WIRE", "+10% wire reach. Connect to a more distant anchor."],
@@ -31,9 +32,7 @@ static func xp_required(level: int) -> int:
 static func progress(previous: float, position_z: float, origin_offset: float) -> float:
  return maxf(previous, -position_z + origin_offset)
 
-static func floor_outcome(impact: float, speed: float, skates: int, released: bool, armed: bool) -> String:
- if impact > SAFE_IMPACT:
-  return "fatal"
- if skates > 0 and speed >= SLIDE_MIN_SPEED and released and armed:
+static func floor_outcome(speed: float, skates: int, armed: bool) -> String:
+ if skates > 0 and speed >= SLIDE_MIN_SPEED and armed:
   return "slide"
- return "stumble"
+ return "ground"

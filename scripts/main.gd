@@ -29,6 +29,7 @@ var death_reason: String = ""
 var countdown: float = 0
 var left_target: Node3D
 var right_target: Node3D
+var twin_ready: bool = false
 var audio: AudioStreamPlayer
 var demo_time: float = 0
 var demo_hooks: int = 0
@@ -96,6 +97,7 @@ func setup_environment() -> void:
  camera.position = Vector3(0, 10, 15)
 
 func create_world(practice: bool) -> void:
+ twin_ready = false
  left_target = null
  right_target = null
  if is_instance_valid(rider):
@@ -125,8 +127,8 @@ func start_run(practice: bool) -> void:
  level = 1
  death_reason = ""
  phase = "playing"
- camera.position = rider.position + Vector3(0, 4.5, 12)
- camera.look_at(rider.position + Vector3(0, 1, -8))
+ camera.position = rider.position + Rules.CAMERA_OFFSET
+ camera.look_at(rider.position + Vector3(0, 1.5, -8))
  hud.rebuild_buttons()
  show_notice("AIM AT A WALL — hold to hook; other button to change point" if preferences.aim_mode == "manual" else "HOLD LMB / RMB — automatic reeling while held")
 
@@ -180,6 +182,8 @@ func _physics_process(delta: float) -> void:
    countdown -= delta
    if countdown <= 0:
     phase = "playing"
+    rider.invincible = maxf(rider.invincible, Rules.RESUME_PROTECTION)
+    show_notice("RESUME SHIELD — protected for 2 seconds")
   else:
    countdown = 1.0
  if phase != "playing":
@@ -225,12 +229,12 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
  if not is_instance_valid(rider):
   return
- var desired: Vector3 = rider.position + Vector3(-rider.position.x * 0.65, 4.5, 12)
+ var desired: Vector3 = rider.position + Rules.CAMERA_OFFSET
  if phase == "menu" or (phase == "settings" and settings_return == "menu"):
   desired = Vector3(3, 9, 15)
- camera.position = camera.position.lerp(desired, 1.0 - exp(-7.0 * delta))
- camera.look_at(rider.position + Vector3(0, 0.8, -9))
- camera.fov = lerpf(camera.fov, 75.0 + clampf(rider.velocity.length() - 12, 0, 18) * 0.35, minf(1, delta * 2))
+ camera.position = camera.position.lerp(desired, 1.0 - exp(-14.0 * delta))
+ camera.look_at(rider.position + Vector3(0, 1.5, -8))
+ camera.fov = lerpf(camera.fov, 75.0, minf(1, delta * 2))
  rider.draw_wire()
  hud.queue_redraw()
  if "--capture" in OS.get_cmdline_user_args() and not capture_done:
@@ -251,6 +255,7 @@ func process_mouse_commands() -> void:
  pending_mouse.clear()
 
 func update_targets() -> void:
+ twin_ready = rider.tiers.launcher > 0 and rider.launch_cooldown <= 0 and city.find_anchor(rider.position, -1, 40, rider.get_rid()) != null and city.find_anchor(rider.position, 1, 40, rider.get_rid()) != null
  if preferences.aim_mode == "manual":
   left_target = null
   right_target = null

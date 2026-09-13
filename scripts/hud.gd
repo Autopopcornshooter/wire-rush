@@ -101,7 +101,7 @@ func _draw() -> void:
   return
  if game.phase == "menu":
   panel(Rect2(42, 62, 420, 584))
-  label_at(Vector2(76, 113), "PROTOTYPE 02  /  GODOT 4", 15, cyan)
+  label_at(Vector2(76, 113), "PROTOTYPE 03  /  GODOT 4", 15, cyan)
   label_at(Vector2(72, 185), "WIRE", 68)
   label_at(Vector2(72, 254), "RUSH", 68)
   label_at(Vector2(76, 298), "Find your rhythm above the city.", 18, muted)
@@ -129,8 +129,14 @@ func _draw() -> void:
  draw_rect(Rect2(42, 188, 196, 4), Color("263e53"))
  draw_rect(Rect2(42, 188, 196 * clampf(game.xp / Rules.xp_required(game.level), 0, 1), 4), cyan)
  label_at(Vector2(42, 219), t("SKATES  %d   /   ARMOR  %d") % [game.rider.tiers.skates, game.rider.armor_charges], 14, muted, 198)
- label_at(Vector2(42, 246), t("TWIN") + "  " + (t("LOCKED") if game.rider.tiers.launcher == 0 else (t("READY [E]") if game.rider.launch_cooldown <= 0 else "%.1fs" % game.rider.launch_cooldown)), 14, cyan, 198)
- label_at(Vector2(42, 272), t("PERFECT SLIDES  %d") % game.rider.slides, 14, muted, 198)
+ var twin_status: String = t("LOCKED")
+ if game.rider.tiers.launcher > 0:
+  if game.rider.launch_cooldown > 0:
+   twin_status = "%.1fs" % game.rider.launch_cooldown
+  else:
+   twin_status = t("READY [E]") if game.twin_ready else t("NEED TWO ANCHORS")
+ label_at(Vector2(42, 246), t("TWIN") + "  " + twin_status, 14, cyan, 198)
+ label_at(Vector2(42, 272), t("SKATE LANDINGS  %d") % game.rider.slides, 14, muted, 198)
  label_at(Vector2(325, 51), "MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM", 16, cyan)
  if game.phase == "playing":
   if game.preferences.aim_mode == "manual":
@@ -161,12 +167,13 @@ func _draw() -> void:
     draw_line(p + Vector2(13, 0), p + Vector2(23, 0), color, 2)
     label_at(p + Vector2(-15, -27), "LMB" if side == -1 else "RMB", 13, color)
   if game.rider.mode in ["swing", "air"]:
-   var safe: bool = game.rider.velocity.y >= -Rules.SAFE_IMPACT
-   var text: String = "SOFT LANDING" if safe else "HARD LANDING — HOOK HIGHER"
-   label_at(Vector2(510, 563), text, 17, cyan if safe else Color("ffab8f"))
+   label_at(Vector2(460, 563), "LAND TO SKATE" if game.rider.tiers.skates > 0 else "LAND TO STOP — Space to jump again", 17, cyan)
+  if game.rider.invincible > 0:
+   panel(Rect2(475, 85, 330, 44))
+   label_at(Vector2(497, 114), t("SHIELD  /  %.1f s") % game.rider.invincible, 20, cyan, 294)
   if game.rider.mode == "slide":
-   panel(Rect2(475, 499, 330, 62))
-   label_at(Vector2(497, 538), t("SLIDE  /  %02d m LEFT") % game.rider.slide_left, 24, cyan, 294)
+   panel(Rect2(24, 304, 310, 54))
+   label_at(Vector2(42, 339), t("SKATE  /  %.1f s LEFT") % game.rider.slide_left, 20, cyan, 274)
  panel(Rect2(24, 651, 1232, 47), 0.87)
  label_at(Vector2(44, 681), "HOLD LMB / RMB  hook + reel     SPACE  jump     A / D  steer     E  twin launch     ESC  pause     R  restart", 16, muted, 1190)
  if game.notice_left > 0 and game.phase == "playing":
@@ -182,7 +189,7 @@ func _draw() -> void:
   label_at(Vector2(435, 280), "%04d m" % game.distance, 54)
   label_at(Vector2(440, 321), game.locale.message(game.death_reason), 16, muted, 400)
   label_at(Vector2(440, 360), t("Top speed  %.1f m/s   /   Blocks  %d") % [game.rider.high_speed, int(game.distance / 64)], 19, white, 400)
-  label_at(Vector2(440, 397), t("Perfect slides  %d   /   Level  %d") % [game.rider.slides, game.level], 19, white, 400)
+  label_at(Vector2(440, 397), t("Skate landings  %d   /   Level  %d") % [game.rider.slides, game.level], 19, white, 400)
   label_at(Vector2(440, 430), t("Skates %d / Twin %d / Armor %d / High %d") % [game.rider.tiers.skates, game.rider.tiers.launcher, game.rider.tiers.armor, game.rider.tiers.high], 16, muted, 400)
  elif game.phase == "upgrade":
   label_at(Vector2(440, 207), "CHOOSE YOUR NEXT EDGE", 30, cyan)

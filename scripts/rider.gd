@@ -12,14 +12,13 @@ var hook_left: float = 0.0
 var hook_duration: float = 0.0
 var blocked_time: float = 0.0
 var released_ago: float = 99.0
-var landing_left: float = 0.0
 var landing_speed: Vector3 = Vector3.ZERO
 var slide_left: float = 0.0
 var slide_armed: bool = true
-var stumble_left: float = 0.0
 var invincible: float = 0.0
 var launch_cooldown: float = 0.0
 var launch_left: float = 0.0
+var launch_velocity := Vector3.ZERO
 var twin_left: Node3D = null
 var twin_right: Node3D = null
 var armor_charges: int = 0
@@ -83,7 +82,7 @@ func reach() -> float:
  return Rules.ROPE_RANGE * (1.0 + tiers.range * 0.1)
 
 func fire(side: int) -> bool:
- if mode in ["dead", "stumble", "landing"] or launch_left > 0:
+ if mode == "dead" or launch_left > 0:
   return false
  var target: Node3D = city.find_anchor(global_position, side, reach(), get_rid())
  release_wire(false)
@@ -95,7 +94,7 @@ func fire(side: int) -> bool:
  return true
 
 func fire_manual(selection: Dictionary, side: int) -> bool:
- if mode in ["dead", "stumble", "landing"] or launch_left > 0:
+ if mode == "dead" or launch_left > 0:
   return false
  if not selection.get("valid", false):
   notice.emit(selection.get("reason", "AIM AT A BUILDING"))
@@ -140,7 +139,7 @@ func jump() -> void:
   notice.emit("RECONNECT — hold a mouse button in the air")
 
 func launch() -> bool:
- if tiers.launcher == 0 or launch_cooldown > 0 or mode in ["dead", "stumble", "landing"]:
+ if tiers.launcher == 0 or launch_cooldown > 0 or mode == "dead" or launch_left > 0:
   return false
  var left: Node3D = city.find_anchor(global_position, -1, 40, get_rid())
  var right: Node3D = city.find_anchor(global_position, 1, 40, get_rid())
@@ -150,9 +149,15 @@ func launch() -> bool:
  release_wire(false)
  twin_left = left
  twin_right = right
- launch_left = 0.18
+ var displacement: Vector3 = (left.global_position + right.global_position) * 0.5 - global_position
+ launch_velocity = displacement.normalized() * Rules.LAUNCH_SPEEDS[tiers.launcher]
+ launch_left = minf(Rules.LAUNCH_SECONDS, maxf(0.01, displacement.length() - 1.5) / launch_velocity.length())
+ velocity = launch_velocity
+ mode = "launch"
+ slide_left = 0
+ invincible = maxf(invincible, launch_left + 0.3)
  launch_cooldown = 10.0
- notice.emit("TWIN LAUNCH")
+ notice.emit("TWIN DASH — protected flight toward both anchors")
  return true
 
 func simulate(delta: float, steer: float) -> void:
@@ -173,33 +178,28 @@ func integrate(dt: float, steer: float) -> void:
  invincible = maxf(0.0, invincible - dt)
  launch_cooldown = maxf(0.0, launch_cooldown - dt)
  if launch_left > 0:
-  launch_left -= dt
+  # Fixed player-to-anchor-midpoint vector; steering and gravity cannot bend the dash.
+  var step_time: float = minf(dt, launch_left)
+  position += launch_velocity * step_time
+  velocity = launch_velocity
+  launch_left = maxf(0, launch_left - dt)
   if launch_left <= 0:
-   velocity.z -= Rules.LAUNCH_BOOSTS[tiers.launcher]
-   velocity.y = maxf(velocity.y, 3.0)
    mode = "air"
    twin_left = null
    twin_right = null
- if mode == "landing":
-  landing_left -= dt
-  if released_ago <= Rules.RELEASE_WINDOW and tiers.skates > 0 and slide_armed:
-   begin_slide()
-  elif landing_left <= 0:
-   stumble()
-  else:
-   return
- if mode == "stumble":
-  stumble_left -= dt
-  if stumble_left <= 0:
-   mode = "ground"
   return
  if global_position.y >= 2.3:
   slide_armed = true
  if mode == "ground":
-  velocity.z = move_toward(velocity.z, -Rules.RUN_SPEED, 55.0 * dt)
+  velocity.z = 0
   safe_z = position.z
- if mode in ["ground", "slide"]:
+ if mode == "ground":
   velocity.x = move_toward(velocity.x, steer * 4.5, 18.0 * dt)
+ elif mode == "slide":
+  # Steering rotates horizontal momentum without reducing its magnitude.
+  var speed: float = Vector2(velocity.x, velocity.z).length()
+  var lateral: float = move_toward(velocity.x, steer * minf(4.5, speed), 18.0 * dt)
+  velocity = Vector3(lateral, velocity.y, (-1.0 if velocity.z <= 0 else 1.0) * sqrt(maxf(0, speed * speed - lateral * lateral)))
  else:
   velocity.x = move_toward(velocity.x, steer * 5.0, 3.5 * dt)
  velocity.y -= Rules.GRAVITY * dt
@@ -228,7 +228,6 @@ func integrate(dt: float, steer: float) -> void:
     var constrained: Vector3 = anchor.global_position + radial.normalized() * rope_length
     velocity = (constrained - global_position) / dt
  velocity = velocity.limit_length(Rules.MAX_SPEED)
- var before: Vector3 = position
  var motion: Vector3 = velocity * dt
  var touched_floor: bool = false
  for collision_index in range(3):
@@ -241,20 +240,20 @@ func integrate(dt: float, steer: float) -> void:
   if normal.y > 0.7:
    touched_floor = true
    if mode in ["air", "swing"]:
-    land(impact, incoming)
-    if mode in ["dead", "stumble", "landing"]:
+    land(incoming)
+    if mode == "ground":
      return
    velocity = velocity.slide(normal)
-  elif impact > 3.0:
+  elif impact > 3.0 and invincible <= 0:
    hurt("HEAD-ON COLLISION")
    return
   else:
    velocity = velocity.slide(normal) * 0.85
   motion = hit.get_remainder().slide(normal)
  if mode == "slide":
-  slide_left = maxf(0.0, slide_left - Vector2(position.x - before.x, position.z - before.z).length())
+  slide_left = maxf(0.0, slide_left - dt)
   if slide_left <= 0:
-   mode = "ground"
+   stop_on_ground()
    notice.emit("SLIDE FINISHED — jump to swing again")
  if mode == "ground" and not touched_floor and velocity.y < -0.5:
   mode = "air"
@@ -264,43 +263,39 @@ func integrate(dt: float, steer: float) -> void:
   position.x = clampf(position.x, -6.6, 6.6)
   velocity.x = 0
 
-func land(impact: float, incoming: Vector3) -> void:
+func land(incoming: Vector3) -> void:
  var horizontal := Vector3(incoming.x, 0, incoming.z)
- var outcome: String = Rules.floor_outcome(impact, horizontal.length(), tiers.skates, released_ago <= Rules.RELEASE_WINDOW, slide_armed)
- if outcome == "fatal":
-  hurt("HARD LANDING  /  %.1f m/s impact" % impact)
- elif outcome == "slide":
+ var outcome: String = Rules.floor_outcome(horizontal.length(), tiers.skates, slide_armed)
+ if outcome == "slide":
   landing_speed = horizontal
   begin_slide()
- elif tiers.skates > 0 and horizontal.length() >= Rules.SLIDE_MIN_SPEED and slide_armed and is_instance_valid(anchor):
-  landing_speed = horizontal
-  landing_left = Rules.RELEASE_WINDOW
-  mode = "landing"
-  velocity = Vector3.ZERO
-  notice.emit("RELEASE NOW — slide window")
  else:
-  stumble()
+  stop_on_ground()
 
 func begin_slide() -> void:
  release_wire(false)
  velocity = landing_speed
  mode = "slide"
- slide_left = Rules.SLIDE_DISTANCES[tiers.skates]
+ slide_left = Rules.SLIDE_SECONDS[tiers.skates]
  slide_armed = false
  slides += 1
- notice.emit("PERFECT SLIDE — Space to jump / mouse to reconnect")
+ notice.emit("SKATING — speed held; Space to jump / mouse to reconnect")
  slid.emit()
 
-func stumble() -> void:
+func stop_on_ground() -> void:
  release_wire(false)
- mode = "stumble"
- stumble_left = 0.6
+ mode = "ground"
+ slide_left = 0
  velocity = Vector3.ZERO
- notice.emit("STUMBLED — jump before hooking; release near the ground")
+ notice.emit("LANDED — stopped safely; Space to jump or mouse to hook")
 
 func hurt(reason: String) -> void:
  if invincible > 0:
-  velocity = Vector3(0, 2, -Rules.RUN_SPEED)
+  if position.y < -8:
+   release_wire(false)
+   position = Vector3(0, 6, position.z + 5)
+   velocity = Vector3(0, 0, -12)
+   mode = "air"
   return
  release_wire(false)
  launch_left = 0
