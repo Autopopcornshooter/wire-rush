@@ -44,7 +44,7 @@ func box(parent: Node3D, pos: Vector3, size: Vector3, color: Color, solid: bool 
   root.add_child(collision)
  return root
 
-func update_chunks(distance: float, attached: Node3D = null) -> void:
+func update_chunks(distance: float, attached: Node3D = null, additional: Array[Node3D] = []) -> void:
  var current: int = floori(distance / LENGTH)
  for index in range(maxi(0, current - 1), current + 6):
   if not chunks.has(index):
@@ -53,6 +53,8 @@ func update_chunks(distance: float, attached: Node3D = null) -> void:
   if key < current - 2:
    var chunk: Node3D = chunks[key]
    if is_instance_valid(attached) and chunk.is_ancestor_of(attached):
+    continue
+   if additional.any(func(point: Node3D): return is_instance_valid(point) and chunk.is_ancestor_of(point)):
     continue
    for i in range(anchors.size() - 1, -1, -1):
     if chunk.is_ancestor_of(anchors[i]):

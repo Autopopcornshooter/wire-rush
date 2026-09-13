@@ -13,7 +13,7 @@ const SLIDE_SECONDS: Array[float] = [0.0, 2.0, 3.5, 5.0]
 const LAUNCH_SPEEDS: Array[float] = [0.0, 28.0, 32.0, 35.0]
 const LAUNCH_SECONDS: float = 0.65
 const RESUME_PROTECTION: float = 2.0
-const CAMERA_OFFSET := Vector3(0, 2.2, 6.0)
+const CAMERA_OFFSET := Vector3(0, 4.5, 12.0)
 const HIGH_ANCHORS: Array[float] = [0.0, 4.0, 7.0, 10.0]
 const UPGRADES: Dictionary = {
  "skates": ["ROLLER SKATES", "Keep landing speed for 2 / 3.5 / 5 seconds. No release timing needed."],

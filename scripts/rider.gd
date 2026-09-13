@@ -30,6 +30,8 @@ var wire_mesh: MeshInstance3D
 var wire_surface: ImmediateMesh
 var high_speed: float = 0.0
 var slides: int = 0
+var dual_mode: bool = false
+var dual_wires: Dictionary = {}
 
 func _ready() -> void:
  collision_layer = 2
@@ -54,7 +56,10 @@ func _ready() -> void:
  wire_surface = ImmediateMesh.new()
  wire_mesh.mesh = wire_surface
  wire_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
- wire_mesh.material_override = city.material(Color("78f9e5"), true)
+ var wire_material := StandardMaterial3D.new()
+ wire_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+ wire_material.vertex_color_use_as_albedo = true
+ wire_mesh.material_override = wire_material
  add_child(wire_mesh)
  wire_mesh.top_level = true
 
@@ -85,7 +90,8 @@ func fire(side: int) -> bool:
  if mode == "dead" or launch_left > 0:
   return false
  var target: Node3D = city.find_anchor(global_position, side, reach(), get_rid())
- release_wire(false)
+ if not dual_mode:
+  release_wire(false)
  if target == null:
   notice.emit("NO ANCHOR IN RANGE — jump or try the other side")
   return false
@@ -103,7 +109,8 @@ func fire_manual(selection: Dictionary, side: int) -> bool:
  if not checked.valid:
   notice.emit(checked.reason)
   return false
- release_wire(false)
+ if not dual_mode:
+  release_wire(false)
  var point := Node3D.new()
  checked.surface.add_child(point)
  point.global_position = checked.point
@@ -113,12 +120,19 @@ func fire_manual(selection: Dictionary, side: int) -> bool:
  return true
 
 func attach(target: Node3D, side: int) -> void:
+ if dual_mode:
+  release_side(side)
+  var duration: float = global_position.distance_to(target.global_position) / (Rules.HOOK_SPEED * (1.0 + tiers.hook * 0.2))
+  dual_wires[side] = {"anchor": target, "hook_left": duration, "duration": duration, "length": 0.0, "blocked": 0.0, "connected": false}
+  return
  anchor = target
  wire_side = side
  hook_duration = global_position.distance_to(anchor.global_position) / (Rules.HOOK_SPEED * (1.0 + tiers.hook * 0.2))
  hook_left = hook_duration
 
 func release_wire(record_input: bool = true) -> void:
+ for side in dual_wires.keys():
+  release_side(side)
  if record_input and is_instance_valid(anchor):
   released_ago = 0
  if is_instance_valid(anchor) and anchor.get_meta("manual", false):
@@ -129,6 +143,100 @@ func release_wire(record_input: bool = true) -> void:
  blocked_time = 0
  if mode == "swing":
   mode = "air"
+
+func release_side(side: int) -> void:
+ if not dual_mode:
+  if wire_side == side:
+   release_wire()
+  return
+ if not dual_wires.has(side):
+  return
+ var target: Node3D = dual_wires[side].anchor
+ if is_instance_valid(target) and target.get_meta("manual", false):
+  target.queue_free()
+ dual_wires.erase(side)
+ if mode == "swing" and not dual_wires.values().any(func(w: Dictionary): return w.connected):
+  mode = "air"
+
+func attached_anchors() -> Array[Node3D]:
+ var result: Array[Node3D] = []
+ if is_instance_valid(anchor):
+  result.append(anchor)
+ for wire in dual_wires.values():
+  if is_instance_valid(wire.anchor):
+   result.append(wire.anchor)
+ for target in [twin_left, twin_right]:
+  if is_instance_valid(target):
+   result.append(target)
+ return result
+
+func integrate_dual(dt: float) -> void:
+ var connected: Array[Dictionary] = []
+ for side in dual_wires.keys():
+  var wire: Dictionary = dual_wires[side]
+  if not is_instance_valid(wire.anchor):
+   release_side(side)
+   continue
+  wire.hook_left -= dt
+  if wire.hook_left > 0:
+   continue
+  if not wire.connected:
+   wire.length = global_position.distance_to(wire.anchor.global_position)
+   wire.connected = true
+  var query := PhysicsRayQueryParameters3D.create(global_position, wire.anchor.global_position)
+  query.exclude = [get_rid()]
+  wire.blocked = 0.0 if get_world_3d().direct_space_state.intersect_ray(query).is_empty() else wire.blocked + dt
+  if wire.blocked > 0.12:
+   release_side(side)
+   notice.emit("WIRE BLOCKED — disconnected")
+   continue
+  wire.length = maxf(3, wire.length - Rules.REEL_SPEED * (1 + tiers.reel * 0.15) * dt)
+  connected.append(wire)
+ if connected.is_empty():
+  if mode == "swing":
+   mode = "air"
+  return
+ mode = "swing"
+ slide_left = 0
+ if connected.size() == 2:
+  # Two ropes must still span the anchor gap; stop reeling before constraints conflict.
+  var gap: float = connected[0].anchor.global_position.distance_to(connected[1].anchor.global_position) + 0.5
+  var deficit: float = maxf(0, gap - connected[0].length - connected[1].length)
+  connected[0].length += deficit * 0.5
+  connected[1].length += deficit * 0.5
+ var predicted: Vector3 = global_position + velocity * dt
+ var constrained: Vector3 = constrain_dual(predicted, connected)
+ velocity = (constrained - global_position) / dt
+
+func constrain_dual(point: Vector3, wires: Array[Dictionary]) -> Vector3:
+ var first: Dictionary = wires[0]
+ var a: Vector3 = first.anchor.global_position
+ var ra: float = first.length
+ var on_a: Vector3 = a + (point - a).limit_length(ra)
+ if wires.size() == 1:
+  return on_a
+ var second: Dictionary = wires[1]
+ var b: Vector3 = second.anchor.global_position
+ var rb: float = second.length
+ if on_a.distance_to(b) <= rb:
+  return on_a
+ var on_b: Vector3 = b + (point - b).limit_length(rb)
+ if on_b.distance_to(a) <= ra:
+  return on_b
+ # Closest point on the circle where the two rope spheres intersect.
+ var gap: float = a.distance_to(b)
+ if gap < 0.001:
+  return a + (point - a).limit_length(minf(ra, rb))
+ var axis: Vector3 = (b - a) / gap
+ var offset: float = (ra * ra - rb * rb + gap * gap) / (2 * gap)
+ var center: Vector3 = a + axis * offset
+ var radius: float = sqrt(maxf(0, ra * ra - offset * offset))
+ var radial: Vector3 = (point - center).slide(axis)
+ if radial.length_squared() < 0.000001:
+  radial = Vector3.DOWN.slide(axis)
+  if radial.length_squared() < 0.000001:
+   radial = Vector3.FORWARD.slide(axis)
+ return center + radial.normalized() * radius
 
 func jump() -> void:
  if mode in ["ground", "slide"]:
@@ -203,6 +311,8 @@ func integrate(dt: float, steer: float) -> void:
  else:
   velocity.x = move_toward(velocity.x, steer * 5.0, 3.5 * dt)
  velocity.y -= Rules.GRAVITY * dt
+ if dual_mode:
+  integrate_dual(dt)
  if is_instance_valid(anchor):
   hook_left -= dt
   if hook_left <= 0 and mode != "swing":
@@ -321,16 +431,27 @@ func upgrade(key: String) -> void:
 
 func draw_wire() -> void:
  wire_surface.clear_surfaces()
- if not is_instance_valid(anchor) and launch_left <= 0:
+ if not is_instance_valid(anchor) and dual_wires.is_empty() and launch_left <= 0:
   return
  wire_surface.surface_begin(Mesh.PRIMITIVE_LINES)
+ for side in dual_wires:
+  wire_surface.surface_set_color(Color("78f9e5") if side == -1 else Color("ffca8d"))
+  var wire: Dictionary = dual_wires[side]
+  if is_instance_valid(wire.anchor):
+   var target: Vector3 = wire.anchor.global_position
+   if wire.hook_left > 0:
+    target = global_position.lerp(target, 1 - wire.hook_left / wire.duration)
+   wire_surface.surface_add_vertex(global_position + Vector3(side * 0.4, 0.3, 0))
+   wire_surface.surface_add_vertex(target)
  if is_instance_valid(anchor):
+  wire_surface.surface_set_color(Color("78f9e5"))
   var target: Vector3 = anchor.global_position
   if hook_left > 0:
    target = global_position.lerp(target, 1.0 - hook_left / hook_duration)
   wire_surface.surface_add_vertex(global_position + Vector3(0, 0.3, 0))
   wire_surface.surface_add_vertex(target)
  if launch_left > 0:
+  wire_surface.surface_set_color(Color("78f9e5"))
   for target in [twin_left, twin_right]:
    if is_instance_valid(target):
     wire_surface.surface_add_vertex(global_position)

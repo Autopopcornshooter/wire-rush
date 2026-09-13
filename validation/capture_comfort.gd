@@ -5,7 +5,7 @@ var game: Node3D
 func _initialize() -> void:
  run.call_deferred()
 func snapshot(name: String) -> void:
- game.camera.position = game.rider.position + Vector3(0, 2.2, 6)
+ game.camera.position = game.rider.position + game.Rules.CAMERA_OFFSET
  game._process(0.016)
  await process_frame
  await RenderingServer.frame_post_draw

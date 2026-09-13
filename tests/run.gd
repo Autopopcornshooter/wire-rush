@@ -41,7 +41,7 @@ func run() -> void:
  check(Rules.floor_outcome(20, 1, false) == "ground", "same landing cannot refresh skating")
 
  await fixture(Vector3(0, 6, 0), Vector3(0, 0, -12))
- check(game.camera.position.distance_to(game.rider.position) < 6.5, "camera starts close to the character")
+ check((game.camera.position - game.rider.position).is_equal_approx(Vector3(0, 4.5, 12)), "camera restores the original distant offset")
  check(game.city.anchors.all(func(a: Node3D): return a.global_position.y >= 16.0), "base anchors are at least 16m high")
  check(game.rider.fire(-1), "left input acquires visible forward anchor")
  await frames(15)

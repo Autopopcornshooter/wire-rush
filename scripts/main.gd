@@ -51,6 +51,8 @@ func _ready() -> void:
    preferences.language = "en"
   elif arg == "--manual":
    preferences.aim_mode = "manual"
+  elif arg == "--dual":
+   preferences.wire_mode = "dual"
  locale.language = preferences.language
  setup_environment()
  create_world(false)
@@ -116,6 +118,7 @@ func create_world(practice: bool) -> void:
  rider.crashed.connect(end_run)
  rider.slid.connect(func(): tone(740, 0.12))
  rider.reset(practice)
+ rider.dual_mode = preferences.wire_mode == "dual"
 
 func start_run(practice: bool) -> void:
  pending_mouse.clear()
@@ -128,9 +131,11 @@ func start_run(practice: bool) -> void:
  death_reason = ""
  phase = "playing"
  camera.position = rider.position + Rules.CAMERA_OFFSET
- camera.look_at(rider.position + Vector3(0, 1.5, -8))
+ camera.look_at(rider.position + Vector3(0, 1, -8))
  hud.rebuild_buttons()
  show_notice("AIM AT A WALL — hold to hook; other button to change point" if preferences.aim_mode == "manual" else "HOLD LMB / RMB — automatic reeling while held")
+ if rider.dual_mode:
+  show_notice("DUAL WIRES — hold each button for its own wire; release both to fly")
 
 func _input(event: InputEvent) -> void:
  if event is InputEventKey and event.pressed and not event.echo:
@@ -192,7 +197,9 @@ func _physics_process(delta: float) -> void:
  var steer: float = float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A))
  if demo:
   demo_time += delta
-  if rider.anchor == null and rider.position.y > 2:
+  if rider.dual_mode:
+   demo_dual()
+  elif rider.anchor == null and rider.position.y > 2:
    var side: int = -1 if demo_hooks % 2 == 0 else 1
    if preferences.aim_mode == "manual":
     var point := Vector3(side * 7.4, Rules.BASE_ANCHOR_HEIGHT + 2, rider.position.z - 10)
@@ -204,7 +211,7 @@ func _physics_process(delta: float) -> void:
     demo_hooks += 1
   if rider.mode == "ground":
    rider.jump()
-  if rider.mode == "swing" and rider.position.z < rider.anchor.global_position.z - 1:
+  if not rider.dual_mode and rider.mode == "swing" and rider.position.z < rider.anchor.global_position.z - 1:
    rider.release_wire()
  rider.simulate(delta, steer)
  var previous: float = distance
@@ -215,7 +222,7 @@ func _physics_process(delta: float) -> void:
  if collected > 0:
   tone(960, 0.055)
  city.high_level = rider.tiers.high
- city.update_chunks(distance, rider.anchor)
+ city.update_chunks(distance, rider.anchor, rider.attached_anchors())
  if rider.position.z < -2048:
   city.rebase(2048)
   rider.position.z += 2048
@@ -229,12 +236,12 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
  if not is_instance_valid(rider):
   return
- var desired: Vector3 = rider.position + Rules.CAMERA_OFFSET
+ var desired: Vector3 = rider.position + Rules.CAMERA_OFFSET + Vector3(-rider.position.x * 0.65, 0, 0)
  if phase == "menu" or (phase == "settings" and settings_return == "menu"):
   desired = Vector3(3, 9, 15)
- camera.position = camera.position.lerp(desired, 1.0 - exp(-14.0 * delta))
- camera.look_at(rider.position + Vector3(0, 1.5, -8))
- camera.fov = lerpf(camera.fov, 75.0, minf(1, delta * 2))
+ camera.position = camera.position.lerp(desired, 1.0 - exp(-7.0 * delta))
+ camera.look_at(rider.position + Vector3(0, 0.8, -9))
+ camera.fov = lerpf(camera.fov, 75.0 + clampf(rider.velocity.length() - 12, 0, 18) * 0.35, minf(1, delta * 2))
  rider.draw_wire()
  hud.queue_redraw()
  if "--capture" in OS.get_cmdline_user_args() and not capture_done:
@@ -250,8 +257,8 @@ func process_mouse_commands() -> void:
     rider.fire_manual(selection, command.side)
    else:
     rider.fire(command.side)
-  elif rider.wire_side == command.side:
-   rider.release_wire()
+  else:
+   rider.release_side(command.side)
  pending_mouse.clear()
 
 func update_targets() -> void:
@@ -299,6 +306,32 @@ func set_aim_mode(aim_mode: String) -> void:
  right_target = null
  save_preferences()
  hud.rebuild_buttons()
+
+func set_wire_mode(wire_mode: String) -> void:
+ if wire_mode not in ["single", "dual"]:
+  return
+ preferences.wire_mode = wire_mode
+ pending_mouse.clear()
+ rider.release_wire(false)
+ rider.dual_mode = wire_mode == "dual"
+ save_preferences()
+ hud.rebuild_buttons()
+
+func demo_dual() -> void:
+ for side in [-1, 1]:
+  if rider.dual_wires.has(side):
+   var target: Node3D = rider.dual_wires[side].anchor
+   if is_instance_valid(target) and rider.position.z < target.global_position.z - 1:
+    rider.release_side(side)
+  elif rider.position.y > 2:
+   if preferences.aim_mode == "manual":
+    var point := Vector3(side * 7.4, Rules.BASE_ANCHOR_HEIGHT + 2, rider.position.z - 10)
+    aim_screen = camera.unproject_position(point)
+    var selection: Dictionary = city.manual_target(rider.position, camera.position, (point - camera.position).normalized(), rider.reach(), rider.get_rid())
+    if rider.fire_manual(selection, side):
+     demo_hooks += 1
+   elif rider.fire(side):
+    demo_hooks += 1
 
 func save_preferences() -> void:
  settings_error = save_enabled and preferences.save_file() != OK

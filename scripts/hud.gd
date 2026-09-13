@@ -54,11 +54,13 @@ func rebuild_buttons() -> void:
   add_button("SETTINGS", Rect2(440, 408, 400, 48), game.open_settings)
   add_button("MAIN MENU", Rect2(440, 476, 400, 48), game.return_menu)
  elif game.phase == "settings":
-  add_button("한국어", Rect2(590, 185, 150, 46), func(): game.set_language("ko"), game.preferences.language == "ko")
-  add_button("English", Rect2(755, 185, 150, 46), func(): game.set_language("en"), game.preferences.language == "en")
-  add_button("AUTO AIM", Rect2(530, 265, 180, 46), func(): game.set_aim_mode("auto"), game.preferences.aim_mode == "auto")
-  add_button("MANUAL AIM", Rect2(725, 265, 180, 46), func(): game.set_aim_mode("manual"), game.preferences.aim_mode == "manual")
-  add_button("BACK   /   ESC", Rect2(520, 557, 240, 46), game.close_settings)
+  add_button("한국어", Rect2(590, 155, 150, 46), func(): game.set_language("ko"), game.preferences.language == "ko")
+  add_button("English", Rect2(755, 155, 150, 46), func(): game.set_language("en"), game.preferences.language == "en")
+  add_button("AUTO AIM", Rect2(530, 220, 180, 46), func(): game.set_aim_mode("auto"), game.preferences.aim_mode == "auto")
+  add_button("MANUAL AIM", Rect2(725, 220, 180, 46), func(): game.set_aim_mode("manual"), game.preferences.aim_mode == "manual")
+  add_button("SINGLE WIRE", Rect2(530, 285, 180, 46), func(): game.set_wire_mode("single"), game.preferences.wire_mode == "single")
+  add_button("DUAL WIRES", Rect2(725, 285, 180, 46), func(): game.set_wire_mode("dual"), game.preferences.wire_mode == "dual")
+  add_button("BACK   /   ESC", Rect2(520, 585, 240, 46), game.close_settings)
  elif game.phase == "upgrade":
   for i in range(game.choices.size()):
    var slot: int = i
@@ -87,21 +89,21 @@ func _draw() -> void:
   return
  if game.phase == "settings":
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
-  panel(Rect2(310, 94, 660, 550))
-  label_at(Vector2(350, 148), "SETTINGS", 30, cyan)
-  label_at(Vector2(350, 217), "LANGUAGE", 20)
-  label_at(Vector2(350, 250), "Select a language. Changes apply immediately.", 14, muted, 560)
-  label_at(Vector2(350, 296), "AIM MODE", 20)
-  label_at(Vector2(350, 350), "Choose where your next wire connects.", 17, cyan)
-  label_at(Vector2(350, 387), "Auto: LMB / RMB selects a nearby left / right anchor.", 16, muted, 580)
-  label_at(Vector2(350, 420), "Manual: point at a building wall, then hold either button.", 16, white, 580)
-  label_at(Vector2(350, 453), "While swinging, aim elsewhere and press the other button.", 16, white, 580)
-  label_at(Vector2(350, 486), "Hold to reel automatically. Release the active button to let go.", 16, muted, 580)
-  label_at(Vector2(350, 528), "Settings could not be saved. They apply for this session." if game.settings_error else "Language and aim mode are saved automatically.", 14, muted, 580)
+  panel(Rect2(310, 72, 660, 586))
+  label_at(Vector2(350, 125), "SETTINGS", 30, cyan)
+  label_at(Vector2(350, 187), "LANGUAGE", 20)
+  label_at(Vector2(350, 252), "AIM MODE", 20)
+  label_at(Vector2(350, 317), "WIRE MODE", 20)
+  label_at(Vector2(350, 375), "Auto: LMB / RMB selects a nearby left / right anchor.", 16, muted, 580)
+  label_at(Vector2(350, 408), "Manual: point at a building wall, then hold either button.", 16, white, 580)
+  label_at(Vector2(350, 447), "Dual: LMB and RMB fire and hold separate wires." if game.preferences.wire_mode == "dual" else "Single: the other button replaces your current wire.", 16, cyan, 580)
+  label_at(Vector2(350, 480), "Release one button to drop only that wire." if game.preferences.wire_mode == "dual" else "While swinging, aim elsewhere and press the other button.", 16, white, 580)
+  label_at(Vector2(350, 513), "Hold both buttons to reel both wires. E remains twin dash." if game.preferences.wire_mode == "dual" else "Hold to reel automatically. Release the active button to let go.", 16, muted, 580)
+  label_at(Vector2(350, 552), "Settings could not be saved. They apply for this session." if game.settings_error else "Language, aim and wire modes are saved automatically.", 14, muted, 580)
   return
  if game.phase == "menu":
   panel(Rect2(42, 62, 420, 584))
-  label_at(Vector2(76, 113), "PROTOTYPE 03  /  GODOT 4", 15, cyan)
+  label_at(Vector2(76, 113), "PROTOTYPE 04  /  GODOT 4", 15, cyan)
   label_at(Vector2(72, 185), "WIRE", 68)
   label_at(Vector2(72, 254), "RUSH", 68)
   label_at(Vector2(76, 298), "Find your rhythm above the city.", 18, muted)
@@ -112,9 +114,9 @@ func _draw() -> void:
   label_at(Vector2(776, 493), "YOUR FIRST SWING", 17, cyan)
   label_at(Vector2(776, 528), "Point at a wall; hold LMB or RMB to hook there." if game.preferences.aim_mode == "manual" else "Hold LMB / RMB to connect left / right.", 17, white, 418)
   label_at(Vector2(776, 556), "Hold the mouse button to reel and climb automatically.", 17, white, 418)
-  label_at(Vector2(776, 584), "Let go to fly. Space jumps from the road.", 17, white, 418)
+  label_at(Vector2(776, 584), "Release both to fly. Space jumps from the road." if game.preferences.wire_mode == "dual" else "Let go to fly. Space jumps from the road.", 17, white, 418)
   label_at(Vector2(776, 620), "Practice includes skates, twin launch & rescue.", 15, muted, 418)
-  label_at(Vector2(76, 630), "MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM", 14, cyan)
+  label_at(Vector2(76, 630), t("MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM") + " / " + t("DUAL WIRES" if game.preferences.wire_mode == "dual" else "SINGLE WIRE"), 14, cyan, 350)
   return
  panel(Rect2(24, 22, 274, 107))
  label_at(Vector2(43, 50), "PRACTICE / AUTO RESCUE" if game.training else "DISTANCE / PERSONAL BEST", 13, cyan)
@@ -137,7 +139,12 @@ func _draw() -> void:
    twin_status = t("READY [E]") if game.twin_ready else t("NEED TWO ANCHORS")
  label_at(Vector2(42, 246), t("TWIN") + "  " + twin_status, 14, cyan, 198)
  label_at(Vector2(42, 272), t("SKATE LANDINGS  %d") % game.rider.slides, 14, muted, 198)
- label_at(Vector2(325, 51), "MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM", 16, cyan)
+ label_at(Vector2(325, 51), t("MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM") + " / " + t("DUAL WIRES" if game.preferences.wire_mode == "dual" else "SINGLE WIRE"), 16, cyan, 500)
+ if game.rider.dual_mode:
+  for side in [-1, 1]:
+   var wire: Dictionary = game.rider.dual_wires.get(side, {})
+   var status: String = "READY" if wire.is_empty() else ("CONNECTED" if wire.connected else "FIRING")
+   label_at(Vector2(325 if side == -1 else 510, 76), ("LMB / " if side == -1 else "RMB / ") + t(status), 14, cyan if side == -1 else Color("ffca8d"), 175)
  if game.phase == "playing":
   if game.preferences.aim_mode == "manual":
    var color: Color = cyan if game.aim_preview.get("valid", false) else Color("ffab8f")
@@ -153,8 +160,10 @@ func _draw() -> void:
    var caption_pos := Vector2(clampf(cursor.x + 25, 25, 920), clampf(cursor.y - 24, 150, 570))
    panel(Rect2(caption_pos - Vector2(8, 25), Vector2(334, 38)), 0.86)
    label_at(caption_pos, caption, 15, color, 318)
-   if is_instance_valid(game.rider.anchor) and not game.camera.is_position_behind(game.rider.anchor.global_position):
-    var locked: Vector2 = game.camera.unproject_position(game.rider.anchor.global_position)
+   for attached in game.rider.attached_anchors():
+    if game.camera.is_position_behind(attached.global_position):
+     continue
+    var locked: Vector2 = game.camera.unproject_position(attached.global_position)
     draw_circle(locked, 5, cyan)
     draw_arc(locked, 10, 0, TAU, 24, cyan, 2, true)
   for side in [-1, 1]:

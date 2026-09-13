@@ -2,6 +2,17 @@ extends RefCounted
 const FONT = preload("res://assets/fonts/ui_font.tres")
 var language: String = "ko"
 const KO: Dictionary = {
+ "DUAL WIRES — hold each button for its own wire; release both to fly": "와이어 2개 — 좌·우 버튼으로 각각 유지, 둘 다 놓으면 비행",
+ "Release both to fly. Space jumps from the road.": "두 버튼을 놓아 비행하세요. 지상 점프는 Space.",
+ "WIRE MODE": "와이어 개수",
+ "SINGLE WIRE": "와이어 1개",
+ "DUAL WIRES": "와이어 2개",
+ "READY": "대기", "CONNECTED": "연결 중", "FIRING": "발사 중",
+ "Dual: LMB and RMB fire and hold separate wires.": "2개: 왼쪽·오른쪽 클릭으로 각각 다른 와이어 발사·유지",
+ "Single: the other button replaces your current wire.": "1개: 반대 버튼을 누르면 기존 와이어의 연결을 변경",
+ "Release one button to drop only that wire.": "한쪽 버튼을 놓으면 그쪽 와이어만 해제합니다.",
+ "Hold both buttons to reel both wires. E remains twin dash.": "두 버튼 유지로 두 줄 감기. E는 별도의 양측 무적 사출입니다.",
+ "Language, aim and wire modes are saved automatically.": "언어·조준 방식·와이어 개수는 자동으로 저장됩니다.",
  "Keep landing speed for 2 / 3.5 / 5 seconds. No release timing needed.": "착지 후 속도를 2 / 3.5 / 5초간 유지합니다. 해제 타이밍 조건 없음.",
  "E: dash toward the midpoint of two anchors, invulnerable. 10s cooldown.": "E: 두 앵커 중간점으로 무적 돌진. 재사용 대기 10초.",
  "TWIN DASH — protected flight toward both anchors": "양측 사출 — 두 앵커 중간점을 향해 무적 돌진",
@@ -34,7 +45,7 @@ const KO: Dictionary = {
  "RUN AGAIN   /   R": "다시 도전   /   R",
  "MAIN MENU": "메인 메뉴",
  "RESUME   /   ESC": "계속하기   /   ESC",
- "PROTOTYPE 03  /  GODOT 4": "프로토타입 03  /  GODOT 4",
+ "PROTOTYPE 04  /  GODOT 4": "프로토타입 04  /  GODOT 4",
  "Find your rhythm above the city.": "도시 위에서 나만의 스윙을 만드세요.",
  "HOOK  >  SWING  >  RELEASE": "연결  >  스윙  >  해제",
  "SLIDE  >  JUMP  >  RECONNECT": "슬라이드  >  점프  >  재연결",
