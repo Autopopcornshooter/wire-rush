@@ -158,9 +158,8 @@ func integrate(dt: float, steer: float) -> void:
  velocity.y -= Rules.GRAVITY * dt
  if is_instance_valid(anchor):
   hook_left -= dt
-  var query := PhysicsRayQueryParameters3D.create(global_position, anchor.global_position)
-  query.exclude = [get_rid()]
-  var blocked: bool = not get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+  var surface: Node3D = anchor.get_parent() if hook_connected else null
+  var blocked: bool = city.wire_path_blocked(global_position, anchor.global_position, get_rid(), surface)
   if blocked:
    blocked_time += dt
    if blocked_time > 0.12:

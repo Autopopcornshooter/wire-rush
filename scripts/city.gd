@@ -164,7 +164,76 @@ func manual_target(from: Vector3, ray_origin: Vector3, direction: Vector3, reach
  var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
  if hit.is_empty():
   return {"valid": false, "reason": "AIM AT A SURFACE"}
- return validate_manual_point(from, hit.position, hit.normal, hit.collider, reach, exclude)
+ var target: Dictionary = validate_manual_point(from, hit.position, hit.normal, hit.collider, reach, exclude)
+ if target.get("reason", "") == "OUT OF RANGE":
+  return range_limited_target(from, hit.position, reach, exclude)
+ return target
+
+func range_limited_target(from: Vector3, desired: Vector3, reach: float, exclude: RID) -> Dictionary:
+ # Project the cursor's distant surface onto reachable box faces. Keep real surfaces,
+ # including building gaps and small aerial blocks, rather than making floating hooks.
+ var aim: Vector3 = (desired - from).normalized()
+ var limit_point: Vector3 = from + aim * reach
+ var candidates: Array[Dictionary] = []
+ for chunk in chunks.values():
+  for surface in chunk.get_children():
+   if not surface.get_meta("hookable", false):
+    continue
+   var collision: CollisionShape3D = surface.get_child(1)
+   var half_size: Vector3 = collision.shape.size * 0.5
+   var center: Vector3 = collision.global_position
+   var bounds := AABB(center - half_size, half_size * 2)
+   var nearest: Vector3 = from.clamp(bounds.position, bounds.end)
+   if from.distance_to(nearest) > reach + 0.08:
+    continue
+   for axis in range(3):
+    for side in [-1.0, 1.0]:
+     var normal := Vector3.ZERO
+     normal[axis] = side
+     var low: Vector3 = bounds.position + normal * 0.08
+     var high: Vector3 = bounds.end + normal * 0.08
+     var face: float = center[axis] + side * (half_size[axis] + 0.08)
+     low[axis] = face
+     high[axis] = face
+     low.y = maxf(low.y, 2.5)
+     if low.y > high.y:
+      continue
+     var start: Vector3 = from.clamp(low, high)
+     if from.distance_to(start) > reach:
+      continue
+     var end: Vector3 = desired.clamp(low, high)
+     if from.distance_to(end) > reach:
+      # The face rectangle is convex: bisection stays on this real surface.
+      var inside: Vector3 = start
+      var outside: Vector3 = end
+      for i in range(24):
+       var midpoint: Vector3 = (inside + outside) * 0.5
+       if from.distance_to(midpoint) <= reach - 0.001:
+        inside = midpoint
+       else:
+        outside = midpoint
+      end = inside
+     if (end - from).dot(aim) <= 0:
+      continue
+     candidates.append({"point": end, "normal": normal, "surface": surface, "score": end.distance_squared_to(limit_point)})
+ candidates.sort_custom(func(a: Dictionary, b: Dictionary): return a.score < b.score)
+ for candidate in candidates:
+  var result: Dictionary = validate_manual_point(from, candidate.point - candidate.normal * 0.08, candidate.normal, candidate.surface, reach, exclude)
+  if result.valid:
+   result.adjusted = true
+   result.reason = "RANGE ASSIST"
+   return result
+ return {"valid": false, "reason": "NO SURFACE IN RANGE"}
+
+func wire_path_blocked(from: Vector3, to: Vector3, exclude: RID, attached_surface: Node3D = null) -> bool:
+ var query := PhysicsRayQueryParameters3D.create(from, to, 1)
+ var exclusions: Array[RID] = [exclude]
+ # A hook on an aerial block may swing around that block. Only this attached
+ # body is ignored for rope occlusion; character collisions and other blockers stay.
+ if is_instance_valid(attached_surface) and attached_surface.get_meta("hazard", false):
+  exclusions.append(attached_surface.get_rid())
+ query.exclude = exclusions
+ return not get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 func validate_manual_point(from: Vector3, surface_point: Vector3, normal: Vector3, surface: Node3D, reach: float, exclude: RID) -> Dictionary:
  if not is_instance_valid(surface) or not is_ancestor_of(surface) or not surface.get_meta("hookable", false):

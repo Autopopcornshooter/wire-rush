@@ -128,7 +128,7 @@ func run() -> void:
  check(game.rider.wire_side == 1 and is_instance_valid(game.rider.anchor), "releasing the previous button cannot drop the new wire")
  var second_anchor: Node3D = game.rider.anchor
  var invalid: Dictionary = aim_at(second_point, 2.0)
- check(not invalid.valid and invalid.reason == "OUT OF RANGE", "manual targeting respects player wire range")
+ check(not invalid.valid and invalid.reason == "NO SURFACE IN RANGE", "range assist cannot invent a surface outside player reach")
  check(not game.rider.fire_manual(invalid, -1) and game.rider.anchor == second_anchor, "an invalid retarget keeps the active wire")
  var ground: Dictionary = aim_at(Vector3(0, 0, -12))
  check(not ground.valid and ground.reason == "AIM AT A SURFACE", "road is not a manual attachment surface")

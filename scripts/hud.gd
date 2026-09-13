@@ -90,7 +90,7 @@ func _draw() -> void:
   label_at(Vector2(350, 187), "LANGUAGE", 20)
   label_at(Vector2(350, 255), "MANUAL SINGLE WIRE", 22, cyan)
   label_at(Vector2(350, 303), "Point at a wall or aerial obstacle; hold either mouse button.", 16, white, 580)
-  label_at(Vector2(350, 340), "The other button replaces your current wire.", 16, muted, 580)
+  label_at(Vector2(350, 340), "Other button replaces wire. Far aim adjusts to wire reach.", 16, muted, 580)
   label_at(Vector2(350, 387), "Release with player height at 5m or below: safe landing.", 16, cyan, 580)
   label_at(Vector2(350, 424), "Release above 5m: fatal road landing, even with armor.", 16, Color("ffab8f"), 580)
   label_at(Vector2(350, 461), "Unhooked jumps are exempt. Jumping alone does not renew skating.", 16, white, 580)
@@ -142,6 +142,11 @@ func _draw() -> void:
   if game.aim_preview.get("valid", false):
    caption += " / %.1f m" % game.aim_preview.distance
    caption += t(" / TARGET %.1fm") % game.aim_preview.surface_point.y
+   if game.aim_preview.get("adjusted", false) and not game.camera.is_position_behind(game.aim_preview.point):
+    var assisted: Vector2 = game.camera.unproject_position(game.aim_preview.point)
+    draw_line(cursor, assisted, Color(cyan, 0.5), 1, true)
+    draw_arc(assisted, 9, 0, TAU, 24, cyan, 2, true)
+    draw_circle(assisted, 3, cyan)
   var caption_pos := Vector2(clampf(cursor.x + 25, 25, 920), clampf(cursor.y - 24, 150, 570))
   panel(Rect2(caption_pos - Vector2(8, 25), Vector2(334, 38)), 0.86)
   label_at(caption_pos, caption, 15, color, 318)
