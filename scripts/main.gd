@@ -128,7 +128,7 @@ func start_run(practice: bool) -> void:
  camera.position = rider.position + Vector3(0, 4.5, 12)
  camera.look_at(rider.position + Vector3(0, 1, -8))
  hud.rebuild_buttons()
- show_notice("AIM AT A WALL — hold to hook; other button to change point" if preferences.aim_mode == "manual" else "HOLD LMB / RMB + SHIFT — reel into your first swing")
+ show_notice("AIM AT A WALL — hold to hook; other button to change point" if preferences.aim_mode == "manual" else "HOLD LMB / RMB — automatic reeling while held")
 
 func _input(event: InputEvent) -> void:
  if event is InputEventKey and event.pressed and not event.echo:
@@ -186,25 +186,23 @@ func _physics_process(delta: float) -> void:
   return
  process_mouse_commands()
  var steer: float = float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A))
- var reel: bool = Input.is_physical_key_pressed(KEY_SHIFT)
  if demo:
   demo_time += delta
   if rider.anchor == null and rider.position.y > 2:
    var side: int = -1 if demo_hooks % 2 == 0 else 1
    if preferences.aim_mode == "manual":
-    var point := Vector3(side * 7.4, 12, rider.position.z - 10)
+    var point := Vector3(side * 7.4, Rules.BASE_ANCHOR_HEIGHT + 2, rider.position.z - 10)
     aim_screen = camera.unproject_position(point)
     var target: Dictionary = city.manual_target(rider.position, camera.position, (point - camera.position).normalized(), rider.reach(), rider.get_rid())
     if rider.fire_manual(target, side):
      demo_hooks += 1
    elif rider.fire(side):
     demo_hooks += 1
-  reel = true
   if rider.mode == "ground":
    rider.jump()
   if rider.mode == "swing" and rider.position.z < rider.anchor.global_position.z - 1:
    rider.release_wire()
- rider.simulate(delta, steer, reel)
+ rider.simulate(delta, steer)
  var previous: float = distance
  distance = Rules.progress(distance, rider.position.z, city.origin_offset)
  xp += distance - previous
@@ -311,7 +309,7 @@ func capture() -> void:
  get_tree().quit()
 
 func gameplay_released() -> bool:
- return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_E) and not Input.is_physical_key_pressed(KEY_SHIFT)
+ return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_E)
 
 func resume() -> void:
  pending_mouse.clear()

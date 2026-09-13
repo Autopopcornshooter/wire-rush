@@ -113,9 +113,13 @@ func run() -> void:
  root.push_input(motion, true)
  game.update_targets()
  check(first_anchor.global_position.is_equal_approx(fixed_point), "moving the cursor while holding does not move the existing attachment")
+ var held_length: float = 0
  for i in range(24):
   await physics_frame
-  game.rider.simulate(1.0 / 60.0, 0, true)
+  game.rider.simulate(1.0 / 60.0, 0)
+  if i == 14:
+   held_length = game.rider.rope_length
+ check(game.rider.rope_length < held_length and not Input.is_physical_key_pressed(KEY_SHIFT), "manual hook also reels automatically without Shift")
  check(game.rider.mode == "swing" and game.rider.position.z < -3, "manual hook travels and drives actual swinging motion")
  mouse(MOUSE_BUTTON_RIGHT, true, second_point)
  game.process_mouse_commands()

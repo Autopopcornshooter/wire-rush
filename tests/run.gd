@@ -15,10 +15,10 @@ func check(condition: bool, description: String) -> void:
   failures += 1
   push_error("FAIL " + description)
 
-func frames(count: int, reel: bool = false, steer: float = 0.0) -> void:
+func frames(count: int, steer: float = 0.0) -> void:
  for i in range(count):
   await physics_frame
-  game.rider.simulate(1.0 / 60.0, steer, reel)
+  game.rider.simulate(1.0 / 60.0, steer)
 
 func fixture(pos: Vector3, speed: Vector3, training: bool = false) -> void:
  game.start_run(training)
@@ -42,16 +42,22 @@ func run() -> void:
  check(Rules.floor_outcome(3, 20, 1, true, false) == "stumble", "same landing cannot refresh slide")
 
  await fixture(Vector3(0, 6, 0), Vector3(0, 0, -12))
+ check(game.city.anchors.all(func(a: Node3D): return a.global_position.y >= 16.0), "base anchors are at least 16m high")
  check(game.rider.fire(-1), "left input acquires visible forward anchor")
- await frames(25, true)
+ await frames(15)
+ var held_length: float = game.rider.rope_length
+ await frames(10)
+ check(game.rider.rope_length < held_length and not Input.is_physical_key_pressed(KEY_SHIFT), "holding an automatic hook reels without Shift")
  check(game.rider.mode == "swing", "hook travels then becomes a swing")
  check(game.rider.position.z < -3, "swing physically moves forward")
  check(game.rider.position.distance_to(game.rider.anchor.global_position) <= game.rider.rope_length + 0.08, "taut rope constrains actual body displacement")
  var retained: Vector3 = game.rider.velocity
  game.rider.release_wire()
+ var released_length: float = game.rider.rope_length
  check(game.rider.velocity.is_equal_approx(retained), "release preserves full velocity immediately")
  var old_y: float = game.rider.position.y
  await frames(10)
+ check(game.rider.rope_length == released_length, "release stops automatic reeling")
  check(game.rider.position.y != old_y and game.rider.mode == "air", "released rider follows free flight")
  check(game.rider.fire(1), "opposite side can be acquired")
  check(game.rider.wire_side == 1, "single-wire ownership moves to latest side")
@@ -78,7 +84,7 @@ func run() -> void:
  await frames(20)
  check(game.rider.mode == "air" and game.rider.slide_armed, "slide jump re-arms after actual air height")
  check(game.rider.fire(-1), "slide jump can reconnect")
- await frames(20, true)
+ await frames(20)
  check(game.rider.mode == "swing", "slide > jump > hook reaches swing through physics")
 
  await fixture(Vector3(0, 1.0, 0), Vector3(0, -2, -14))

@@ -96,7 +96,7 @@ func _draw() -> void:
   label_at(Vector2(350, 387), "Auto: LMB / RMB selects a nearby left / right anchor.", 16, muted, 580)
   label_at(Vector2(350, 420), "Manual: point at a building wall, then hold either button.", 16, white, 580)
   label_at(Vector2(350, 453), "While swinging, aim elsewhere and press the other button.", 16, white, 580)
-  label_at(Vector2(350, 486), "Release the active button to let go. Shift reels the wire.", 16, muted, 580)
+  label_at(Vector2(350, 486), "Hold to reel automatically. Release the active button to let go.", 16, muted, 580)
   label_at(Vector2(350, 528), "Settings could not be saved. They apply for this session." if game.settings_error else "Language and aim mode are saved automatically.", 14, muted, 580)
   return
  if game.phase == "menu":
@@ -111,7 +111,7 @@ func _draw() -> void:
   panel(Rect2(750, 457, 465, 190), 0.88)
   label_at(Vector2(776, 493), "YOUR FIRST SWING", 17, cyan)
   label_at(Vector2(776, 528), "Point at a wall; hold LMB or RMB to hook there." if game.preferences.aim_mode == "manual" else "Hold LMB / RMB to connect left / right.", 17, white, 418)
-  label_at(Vector2(776, 556), "Hold Shift to shorten the wire and climb.", 17, white, 418)
+  label_at(Vector2(776, 556), "Hold the mouse button to reel and climb automatically.", 17, white, 418)
   label_at(Vector2(776, 584), "Let go to fly. Space jumps from the road.", 17, white, 418)
   label_at(Vector2(776, 620), "Practice includes skates, twin launch & rescue.", 15, muted, 418)
   label_at(Vector2(76, 630), "MANUAL AIM" if game.preferences.aim_mode == "manual" else "AUTO AIM", 14, cyan)
@@ -162,13 +162,13 @@ func _draw() -> void:
     label_at(p + Vector2(-15, -27), "LMB" if side == -1 else "RMB", 13, color)
   if game.rider.mode in ["swing", "air"]:
    var safe: bool = game.rider.velocity.y >= -Rules.SAFE_IMPACT
-   var text: String = "SOFT LANDING" if safe else "HARD LANDING — REEL UP"
+   var text: String = "SOFT LANDING" if safe else "HARD LANDING — HOOK HIGHER"
    label_at(Vector2(510, 563), text, 17, cyan if safe else Color("ffab8f"))
   if game.rider.mode == "slide":
    panel(Rect2(475, 499, 330, 62))
    label_at(Vector2(497, 538), t("SLIDE  /  %02d m LEFT") % game.rider.slide_left, 24, cyan, 294)
  panel(Rect2(24, 651, 1232, 47), 0.87)
- label_at(Vector2(44, 681), "LMB / RMB  hook     SHIFT  reel     SPACE  jump     A / D  steer     E  twin launch     ESC  pause     R  restart", 16, muted, 1190)
+ label_at(Vector2(44, 681), "HOLD LMB / RMB  hook + reel     SPACE  jump     A / D  steer     E  twin launch     ESC  pause     R  restart", 16, muted, 1190)
  if game.notice_left > 0 and game.phase == "playing":
   panel(Rect2(270, 593, 740, 40), 0.85)
   label_at(Vector2(290, 620), game.locale.message(game.message), 17, cyan, 700)

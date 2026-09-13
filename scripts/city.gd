@@ -75,18 +75,19 @@ func create_chunk(index: int) -> void:
   box(chunk, Vector3(side * 6.8, 0.035, -32), Vector3(0.10, 0.05, 64), Color("52d8cf"), false, true)
   for b in range(4):
    var z: float = -8.0 - b * 16.0
-   var height: float = 17.0 + float((index * 7 + b * 3 + side) % 5) * 3.0
+   var height: float = 23.0 + float((index * 7 + b * 3 + side) % 5) * 3.0
+   height = maxf(height, Rules.BASE_ANCHOR_HEIGHT + 4.0 + Rules.HIGH_ANCHORS[high_level])
    var col := Color("233c56") if (index + b) % 2 == 0 else Color("294860")
    var building := box(chunk, Vector3(side * 11.4, height * 0.5, z), Vector3(8, height, 14), col, true)
    building.set_meta("hookable", true)
-   box(chunk, Vector3(side * 7.32, 9, z), Vector3(0.08, 0.15, 12), Color("63b2bb"), false, true)
+   box(chunk, Vector3(side * 7.32, Rules.BASE_ANCHOR_HEIGHT - 1, z), Vector3(0.08, 0.15, 12), Color("63b2bb"), false, true)
    for floor_index in range(2, int(height / 3)):
     box(chunk, Vector3(side * 7.34, floor_index * 3.0, z), Vector3(0.06, 0.7, 10), Color("39566e"))
    if kind != 3 or b != 2:
-    add_anchor(chunk, Vector3(side * 6.1, 10.0 + (b % 2) * 2.0, z), side)
-    add_anchor(chunk, Vector3(side * 6.1, 10.0, z - 8.0), side)
+    add_anchor(chunk, Vector3(side * 6.1, Rules.BASE_ANCHOR_HEIGHT + (b % 2) * 2.0, z), side)
+    add_anchor(chunk, Vector3(side * 6.1, Rules.BASE_ANCHOR_HEIGHT, z - 8.0), side)
     if high_level > 0:
-     add_anchor(chunk, Vector3(side * 6.1, 12.0 + Rules.HIGH_ANCHORS[high_level], z), side)
+     add_anchor(chunk, Vector3(side * 6.1, Rules.BASE_ANCHOR_HEIGHT + 2 + Rules.HIGH_ANCHORS[high_level], z), side)
  for stripe in range(8):
   box(chunk, Vector3(0, 0.025, -stripe * 8.0 - 4), Vector3(0.08, 0.035, 3), Color("45627a"))
  if kind == 1 or kind == 5:

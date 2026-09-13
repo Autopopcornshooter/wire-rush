@@ -28,7 +28,7 @@ func run() -> void:
    r.jump()
   if r.mode == "swing" and r.position.z < r.anchor.global_position.z - 1:
    r.release_wire()
-  r.simulate(1.0 / 60.0, 0, true)
+  r.simulate(1.0 / 60.0, 0)
   game.distance = maxf(game.distance, -r.position.z)
   game.city.update_chunks(game.distance, r.anchor)
   if frame % 120 == 0:

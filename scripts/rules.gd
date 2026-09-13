@@ -7,6 +7,7 @@ const MAX_SPEED: float = 35.0
 const HOOK_SPEED: float = 80.0
 const ROPE_RANGE: float = 30.0
 const REEL_SPEED: float = 5.0
+const BASE_ANCHOR_HEIGHT: float = 16.0
 const SAFE_IMPACT: float = 4.0
 const RELEASE_WINDOW: float = 0.15
 const SLIDE_MIN_SPEED: float = 8.0
@@ -19,7 +20,7 @@ const UPGRADES: Dictionary = {
  "armor": ["IMPACT ARMOR", "Survive one more hard collision. Refills one charge."],
  "high": ["HIGH NETWORK", "Future blocks gain optional higher anchors. Low routes stay."],
  "range": ["LONGER WIRE", "+10% wire reach. Connect to a more distant anchor."],
- "reel": ["FAST REEL", "+15% reel speed. Hold Shift to tighten your swing."],
+ "reel": ["FAST REEL", "+15% automatic reel speed while holding the mouse button."],
  "hook": ["FAST HOOK", "+20% hook speed. Recover sooner after firing."],
  "jump": ["HIGH JUMP", "+10% jump height. More room to reconnect."],
 }

@@ -91,7 +91,7 @@ func fire(side: int) -> bool:
   notice.emit("NO ANCHOR IN RANGE — jump or try the other side")
   return false
  attach(target, side)
- notice.emit("HOOK FIRED — hold to swing; Shift to reel")
+ notice.emit("HOOK FIRED — hold to swing and reel")
  return true
 
 func fire_manual(selection: Dictionary, side: int) -> bool:
@@ -155,18 +155,18 @@ func launch() -> bool:
  notice.emit("TWIN LAUNCH")
  return true
 
-func simulate(delta: float, steer: float, reel: bool) -> void:
+func simulate(delta: float, steer: float) -> void:
  if mode == "dead":
   return
  # Two fixed substeps; collision sweeps also cover full displacement at max speed.
  for step in range(2):
-  integrate(delta * 0.5, steer, reel)
+  integrate(delta * 0.5, steer)
  high_speed = maxf(high_speed, velocity.length())
  var tilt: float = clampf(-velocity.x * 0.045, -0.45, 0.45)
  visuals.rotation.z = lerpf(visuals.rotation.z, tilt, delta * 8.0)
  visuals.rotation.x = lerpf(visuals.rotation.x, -0.55 if mode == "slide" else 0.12, delta * 8.0)
 
-func integrate(dt: float, steer: float, reel: bool) -> void:
+func integrate(dt: float, steer: float) -> void:
  if mode == "dead":
   return
  released_ago += dt
@@ -220,7 +220,8 @@ func integrate(dt: float, steer: float, reel: bool) -> void:
    else:
     blocked_time = 0
   if mode == "swing" and is_instance_valid(anchor):
-   if reel:
+   # An active wire belongs to its held mouse button; release input detaches it.
+   if wire_side != 0:
     rope_length = maxf(3.0, rope_length - Rules.REEL_SPEED * (1.0 + tiers.reel * 0.15) * dt)
    var radial: Vector3 = global_position + velocity * dt - anchor.global_position
    if radial.length() > rope_length:
