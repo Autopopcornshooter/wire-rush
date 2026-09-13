@@ -1,0 +1,9 @@
+.godot/
+builds/
+tools/local/
+validation/*.log
+validation/*.png
+validation/*.png.import
+*.tmp
+.DS_Store
+export_credentials.cfg
