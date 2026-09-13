@@ -1,0 +1,7 @@
+{
+  "folders": [{ "path": "." }],
+  "settings": {
+    "files.exclude": { ".godot": true },
+    "search.exclude": { "builds": true, "tools/local": true, ".godot": true }
+  }
+}
