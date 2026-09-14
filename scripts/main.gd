@@ -29,6 +29,11 @@ var message: String = ""
 var notice_left: float = 0
 var death_reason: String = ""
 var countdown: float = 0
+var countdown_started: bool = false
+var pending_jump: bool = false
+var camera_pan := Vector2.ZERO
+var camera_goal := Vector3.ZERO
+var camera_look := Vector3.ZERO
 var audio: AudioStreamPlayer
 var demo_time: float = 0
 var demo_hooks: int = 0
@@ -115,6 +120,7 @@ func create_world(practice: bool) -> void:
 func start_run(practice: bool) -> void:
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
  aim_preview.clear()
  training = practice
  create_world(practice)
@@ -123,18 +129,23 @@ func start_run(practice: bool) -> void:
  level = 1
  death_reason = ""
  phase = "playing"
- camera.position = rider.position + Rules.CAMERA_OFFSET
- camera.look_at(rider.position + Vector3(0, 1, -8))
+ camera_pan = Vector2.ZERO
+ aim_screen = Vector2(640, 360)
+ camera_goal = rider.position + Rules.CAMERA_OFFSET
+ camera_look = rider.position + Vector3(0, 0.8, -9)
+ camera.position = camera_goal
+ camera.look_at(camera_look)
  hud.rebuild_buttons()
  show_notice("HOOK WALLS OR AERIAL OBSTACLES — release at player height 5m or below")
 
 func _input(event: InputEvent) -> void:
  if event is InputEventKey and event.pressed and not event.echo:
   if event.keycode == KEY_ESCAPE:
-   if phase == "playing":
+   if phase in ["playing", "countdown"]:
     phase = "paused"
     pending_mouse.clear()
     pending_launch = false
+    pending_jump = false
     hud.rebuild_buttons()
    elif phase == "paused":
     resume()
@@ -153,38 +164,50 @@ func _input(event: InputEvent) -> void:
   if event.keycode == KEY_R and phase in ["playing", "dead", "paused"]:
    start_run(training)
    return
-  if phase == "playing":
+  if phase == "playing" or (phase == "countdown" and countdown_started):
    if event.keycode == KEY_SPACE:
-    rider.jump()
+    if phase == "playing":
+     rider.jump()
+    else:
+     pending_jump = true
    elif event.keycode == KEY_E:
     pending_launch = true
  if event is InputEventMouseMotion:
   aim_screen = event.position
- if event is InputEventMouseButton and phase == "playing":
+ if event is InputEventMouseButton and (phase == "playing" or (phase == "countdown" and countdown_started)):
   var side: int = -1 if event.button_index == MOUSE_BUTTON_LEFT else (1 if event.button_index == MOUSE_BUTTON_RIGHT else 0)
   if side != 0:
    aim_screen = event.position
    pending_mouse.append({"side": side, "pressed": event.pressed, "origin": camera.project_ray_origin(event.position), "direction": camera.project_ray_normal(event.position)})
 
 func _notification(what: int) -> void:
- if what == NOTIFICATION_APPLICATION_FOCUS_OUT and phase == "playing" and not demo:
+ if what == NOTIFICATION_APPLICATION_FOCUS_OUT and phase in ["playing", "countdown"] and not demo:
   phase = "paused"
   pending_mouse.clear()
   pending_launch = false
+  pending_jump = false
   if is_instance_valid(hud):
    hud.rebuild_buttons()
 
 func _physics_process(delta: float) -> void:
  if phase == "countdown":
-  if gameplay_released():
-   countdown -= delta
+  if not countdown_started:
+   if gameplay_released():
+    countdown_started = true
+    countdown = 3 * Rules.COUNTDOWN_BEAT
+    tone(440, 0.08)
+  else:
+   var previous_number: int = countdown_number()
+   countdown = maxf(0, countdown - delta)
    if countdown <= 0:
     phase = "playing"
     rider.invincible = maxf(rider.invincible, Rules.RESUME_PROTECTION)
+    tone(880, 0.12)
     show_notice("RESUME SHIELD — protected for 2 seconds")
-  else:
-   countdown = 1.0
+   elif countdown_number() != previous_number:
+    tone(440, 0.08)
  if phase != "playing":
+  update_camera_goal(delta)
   return
  process_mouse_commands()
  var steer: float = float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A))
@@ -204,6 +227,7 @@ func _physics_process(delta: float) -> void:
   city.rebase(2048)
   rider.position.z += 2048
   camera.position.z += 2048
+ update_camera_goal(delta)
  update_targets()
  if not training and xp >= Rules.xp_required(level) and phase == "playing":
   open_upgrades()
@@ -212,11 +236,9 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
  if not is_instance_valid(rider):
   return
- var desired: Vector3 = rider.position + Rules.CAMERA_OFFSET + Vector3(-rider.position.x * 0.65, 0, 0)
- if phase == "menu" or (phase == "settings" and settings_return == "menu"):
-  desired = Vector3(3, 9, 15)
- camera.position = camera.position.lerp(desired, 1.0 - exp(-7.0 * delta))
- camera.look_at(rider.position + Vector3(0, 0.8, -9))
+ camera.position = camera.position.lerp(camera_goal, 1.0 - exp(-7.0 * delta))
+ var desired_basis: Basis = Transform3D.IDENTITY.looking_at(camera_look - camera.position, Vector3.UP).basis
+ camera.basis = camera.basis.slerp(desired_basis, 1.0 - exp(-8.0 * delta))
  camera.fov = lerpf(camera.fov, 75.0 + clampf(rider.velocity.length() - 12, 0, 18) * 0.35, minf(1, delta * 2))
  rider.draw_wire()
  hud.queue_redraw()
@@ -225,7 +247,33 @@ func _process(delta: float) -> void:
    capture_done = true
    capture.call_deferred()
 
+func countdown_number() -> int:
+ return clampi(ceili(countdown / Rules.COUNTDOWN_BEAT - 0.00001), 1, 3)
+
+func update_camera_goal(delta: float) -> void:
+ var cursor: Vector2 = (aim_screen - Vector2(640, 360)) / Vector2(640, 360)
+ cursor = cursor.clamp(Vector2(-1, -1), Vector2(1, 1))
+ for axis in range(2):
+  cursor[axis] = signf(cursor[axis]) * maxf(0, (absf(cursor[axis]) - 0.12) / 0.88)
+ var target_pan := Vector2(-cursor.x * deg_to_rad(30), -cursor.y * deg_to_rad(50 if cursor.y < 0 else 18))
+ if phase not in ["playing", "countdown"]:
+  target_pan = Vector2.ZERO
+ camera_pan = camera_pan.lerp(target_pan, 1.0 - exp(-Rules.CAMERA_DAMPING * delta))
+ var orbit := Basis.from_euler(Vector3(camera_pan.y, camera_pan.x, 0))
+ var desired: Vector3 = rider.position + orbit * Rules.CAMERA_OFFSET + Vector3(-rider.position.x * 0.65, 0, 0)
+ if phase == "menu" or (phase == "settings" and settings_return == "menu"):
+  desired = rider.position + Vector3(3, 9, 15)
+ desired.y = maxf(1.2, desired.y)
+ var pivot: Vector3 = rider.position + Vector3(0, 0.8, 0)
+ var query := PhysicsRayQueryParameters3D.create(pivot, desired, 1)
+ query.exclude = [rider.get_rid()]
+ var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+ camera_goal = hit.position + hit.normal * 0.4 if not hit.is_empty() else desired
+ camera_look = rider.position + orbit * Vector3(0, 0.8, -9)
+
 func process_mouse_commands() -> void:
+ if pending_jump:
+  rider.jump()
  if pending_launch:
   rider.launch()
  for command in pending_mouse:
@@ -236,6 +284,7 @@ func process_mouse_commands() -> void:
    rider.release_side(command.side)
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
 
 func update_targets() -> void:
  aim_preview = city.manual_target(rider.position, camera.project_ray_origin(aim_screen), camera.project_ray_normal(aim_screen), rider.reach(), rider.get_rid())
@@ -247,6 +296,7 @@ func open_settings() -> void:
  settings_return = phase
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
  phase = "settings"
  hud.rebuild_buttons()
 
@@ -256,6 +306,7 @@ func close_settings() -> void:
  phase = settings_return
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
  hud.rebuild_buttons()
 
 func set_route(route: String) -> void:
@@ -305,19 +356,22 @@ func capture() -> void:
  get_tree().quit()
 
 func gameplay_released() -> bool:
- return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_E)
+ return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_E) and not Input.is_physical_key_pressed(KEY_A) and not Input.is_physical_key_pressed(KEY_D)
 
 func resume() -> void:
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
  rider.release_wire()
  phase = "countdown"
- countdown = 1
+ countdown = 3 * Rules.COUNTDOWN_BEAT
+ countdown_started = false
  hud.rebuild_buttons()
 
 func return_menu() -> void:
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
  phase = "menu"
  create_world(false)
  hud.rebuild_buttons()
@@ -326,6 +380,10 @@ func open_upgrades() -> void:
  choices.clear()
  var pool: Array[String] = []
  for key in Rules.UPGRADES:
+  if key == "armor":
+   if rider.armor_charges == 0:
+    pool.append(key)
+   continue
   if rider.tiers[key] < 3:
    pool.append(key)
  if level == 1 and "skates" in pool:
@@ -335,14 +393,13 @@ func open_upgrades() -> void:
   var i: int = rng.randi_range(0, pool.size() - 1)
   choices.append(pool[i])
   pool.remove_at(i)
- if choices.size() < 3 and rider.armor_charges < rider.tiers.armor and not "armor" in choices:
-  choices.append("armor")
  if choices.is_empty():
   # All abilities maxed: keep XP as a result statistic; do not open an empty modal.
   return
  phase = "upgrade"
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
  hud.rebuild_buttons()
  tone(620, 0.13)
 
@@ -358,6 +415,7 @@ func end_run(reason: String) -> void:
  phase = "dead"
  pending_mouse.clear()
  pending_launch = false
+ pending_jump = false
  death_reason = reason
  if not training and city.route == "standard" and distance > best:
   best = distance

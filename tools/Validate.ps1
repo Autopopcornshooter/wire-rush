@@ -18,4 +18,5 @@ Invoke-Check 'traversal' @('--headless','--fixed-fps','60','--path',$projectRoot
 Invoke-Check 'settings-aim' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/settings_aim.gd','--','--test')
 Invoke-Check 'range-obstacle' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/range_obstacle.gd','--','--test')
 Invoke-Check 'launch-routes' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/launch_routes.gd','--','--test')
+Invoke-Check 'comfort' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/comfort.gd','--','--test')
 Write-Output 'All validation gates passed.'

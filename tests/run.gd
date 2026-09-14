@@ -18,6 +18,11 @@ func check(ok: bool, description: String) -> void:
   push_error("FAIL " + description)
 func fixture() -> void:
  game.start_run(true)
+ # Legacy physics fixtures keep their original launch height; rooftop spawn has separate tests.
+ game.rider.position = Vector3(0, 6, 0)
+ game.rider.velocity = Vector3(0, 0, -12)
+ game.camera.position = game.rider.position + game.Rules.CAMERA_OFFSET
+ game.camera.look_at(game.rider.position + Vector3(0, 0.8, -9))
  game.rider.practice = false
  game.set_physics_process(false)
  game.set_process(false)
@@ -200,6 +205,7 @@ func run() -> void:
  game.phase = "paused"
  game.resume()
  game.countdown = 0
+ game.countdown_started = true
  game._physics_process(1.0 / 60)
  check(game.phase == "playing" and game.rider.invincible > 1.9, "resume protection starts when simulation resumes")
 

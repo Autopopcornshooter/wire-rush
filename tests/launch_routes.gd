@@ -15,6 +15,11 @@ func check(ok: bool, description: String) -> void:
 func fixture(route: String = "standard") -> void:
  game.preferences.route = route
  game.start_run(true)
+ # Legacy physics fixtures keep their original launch height; rooftop spawn has separate tests.
+ game.rider.position = Vector3(0, 6, 0)
+ game.rider.velocity = Vector3(0, 0, -12)
+ game.camera.position = game.rider.position + game.Rules.CAMERA_OFFSET
+ game.camera.look_at(game.rider.position + Vector3(0, 0.8, -9))
  game.rider.practice = false
  await physics_frame
 func frames(count: int) -> void:
@@ -60,7 +65,7 @@ func run() -> void:
  game.city.box(game.city.chunks[0], Vector3(0, 8, -5), Vector3(5, 8, 0.3), Color.RED, true)
  await physics_frame
  await frames(20)
- check(game.rider.armor_charges == 0 and game.rider.launch_left == 0 and game.rider.mode != "dead", "existing armor absorbs dash collision and cancels the dash")
+ check(game.rider.armor_charges == 0 and game.rider.launch_left > 0 and game.rider.mode == "launch" and game.rider.position.z < -8, "armor lets the dash continue through a collision without resetting")
  await fixture()
  var event := InputEventKey.new()
  event.keycode = KEY_E
@@ -108,6 +113,11 @@ func run() -> void:
  game.hud.buttons[3].pressed.emit()
  check(game.city.route == "barriers" and game.preferences.route == "sparse", "route selection applies next run without replacing the paused city")
  game.start_run(true)
+ # Legacy physics fixtures keep their original launch height; rooftop spawn has separate tests.
+ game.rider.position = Vector3(0, 6, 0)
+ game.rider.velocity = Vector3(0, 0, -12)
+ game.camera.position = game.rider.position + game.Rules.CAMERA_OFFSET
+ game.camera.look_at(game.rider.position + Vector3(0, 0.8, -9))
  check(game.city.route == "sparse", "next run uses selected route")
  var path: String = "user://route-test-%d.cfg" % OS.get_process_id()
  game.preferences.save_file(path)

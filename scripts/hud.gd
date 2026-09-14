@@ -206,5 +206,5 @@ func _draw() -> void:
     line += word + " "
    label_at(Vector2(142 + i * 350, y), line, 16, muted)
  elif game.phase == "countdown":
-  label_at(Vector2(460, 325), t("READY  /  %d") % maxi(1, ceili(game.countdown)), 48, cyan)
-  label_at(Vector2(460, 370), "Release all gameplay buttons to continue", 18, muted)
+  label_at(Vector2(460, 325), t("READY  /  %d") % game.countdown_number() if game.countdown_started else t("RELEASE CONTROLS"), 48, cyan)
+  label_at(Vector2(460, 370), "Aim now; held wire input fires when the countdown ends." if game.countdown_started else "Release all gameplay buttons to continue", 18, muted, 700)

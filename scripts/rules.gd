@@ -13,12 +13,15 @@ const ROUTES: Dictionary = {"standard": "STANDARD", "sparse": "SPARSE BUILDINGS"
 const STOP_SPEED: float = 0.15
 const SKATE_FRICTION: Array[float] = [0.9, 0.35, 0.22, 0.12]
 const BUILDING_BONUS: Array[float] = [0.0, 10.0, 20.0, 30.0]
+const ARMOR_PROTECTION: float = 2.0
+const COUNTDOWN_BEAT: float = 0.7
+const CAMERA_DAMPING: float = 5.0
 const RESUME_PROTECTION: float = 2.0
 const CAMERA_OFFSET := Vector3(0, 4.5, 12.0)
 const UPGRADES: Dictionary = {
  "skates": ["ROLLER SKATES", "Lower ground friction each tier: 0.35 / 0.22 / 0.12. Release at player height 5m or below to slide."],
  "launcher": ["TWIN LAUNCH", "E: dash toward two forward wall anchors. Speed upgrade; no invulnerability. 10s cooldown."],
- "armor": ["IMPACT ARMOR", "Absorb an obstacle collision. Cannot save a landing after release above 5m."],
+ "armor": ["IMPACT ARMOR", "Keep moving after a hit: blink and ignore obstacles for 2s. Hidden while armor remains."],
  "high": ["TALLER BUILDINGS", "Raise buildings by 10 / 20 / 30m. Aerial obstacles also rise."],
  "range": ["LONGER WIRE", "+10% wire reach. Connect to a more distant point."],
  "reel": ["FAST REEL", "+15% automatic reel speed while holding the mouse button."],

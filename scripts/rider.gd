@@ -20,6 +20,7 @@ var launch_left: float = 0
 var launch_cooldown: float = 0
 var launch_velocity := Vector3.ZERO
 var twin_anchors: Array[Node3D] = []
+var ignored_obstacles: Array[PhysicsBody3D] = []
 var armor_charges: int = 0
 var tiers: Dictionary = {"skates": 0, "launcher": 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0}
 var practice: bool = false
@@ -61,10 +62,12 @@ func _ready() -> void:
 
 func reset(training: bool) -> void:
  release_wire()
+ clear_obstacle_exceptions()
+ visuals.visible = true
  practice = training
  mode = "air"
- position = Vector3(0, 6, 0)
- velocity = Vector3(0, 0, -12)
+ position = Vector3(0, city.start_height(), 0)
+ velocity = Vector3(0, -2, -12)
  tiers = {"skates": 1 if training else 0, "launcher": 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0}
  armor_charges = 0
  launch_cooldown = 0
@@ -180,6 +183,7 @@ func simulate(delta: float, steer: float) -> void:
  for step in range(2):
   integrate(delta * 0.5, steer)
  high_speed = maxf(high_speed, velocity.length())
+ visuals.visible = invincible <= 0 or fmod(invincible, 0.4) > 0.16
  visuals.rotation.z = lerpf(visuals.rotation.z, clampf(-velocity.x * 0.045, -0.45, 0.45), delta * 8)
  visuals.rotation.x = lerpf(visuals.rotation.x, -0.55 if mode == "slide" else 0.12, delta * 8)
 
@@ -187,6 +191,8 @@ func integrate(dt: float, steer: float) -> void:
  if mode == "dead":
   return
  invincible = maxf(0, invincible - dt)
+ if invincible <= 0:
+  clear_obstacle_exceptions()
  launch_cooldown = maxf(0, launch_cooldown - dt)
  var launching: bool = launch_left > 0
  if launching:
@@ -211,7 +217,7 @@ func integrate(dt: float, steer: float) -> void:
  if is_instance_valid(anchor):
   hook_left -= dt
   var surface: Node3D = anchor.get_parent() if hook_connected else null
-  var blocked: bool = city.wire_path_blocked(global_position, anchor.global_position, get_rid(), surface)
+  var blocked: bool = invincible <= 0 and city.wire_path_blocked(global_position, anchor.global_position, get_rid(), surface)
   if blocked:
    blocked_time += dt
    if blocked_time > 0.12:
@@ -248,9 +254,17 @@ func integrate(dt: float, steer: float) -> void:
     if mode in ["dead", "ground"]:
      return
    velocity = velocity.slide(normal)
-  elif impact > 3 and invincible <= 0:
-   hurt("OBSTACLE COLLISION")
-   return
+  elif not collider.get_meta("road", false) and (invincible > 0 or impact > 3):
+   if not hurt("OBSTACLE COLLISION"):
+    return
+   # Preserve incoming velocity and use the untraveled sweep after the hit.
+   # Only obstacle bodies are ignored. Road landing rules remain active.
+   if collider is PhysicsBody3D:
+    add_collision_exception_with(collider)
+    if not ignored_obstacles.has(collider):
+     ignored_obstacles.append(collider)
+   motion = hit.get_remainder()
+   continue
   else:
    velocity = velocity.slide(normal) * 0.85
   motion = hit.get_remainder().slide(normal)
@@ -291,13 +305,27 @@ func stop_on_ground() -> void:
 func die(reason: String) -> void:
  release_wire()
  mode = "dead"
+ visuals.visible = true
+ clear_obstacle_exceptions()
  velocity = Vector3.ZERO
  crashed.emit(reason)
 
-func hurt(reason: String) -> void:
+func clear_obstacle_exceptions() -> void:
+ for body in ignored_obstacles:
+  if is_instance_valid(body):
+   remove_collision_exception_with(body)
+ ignored_obstacles.clear()
+
+func hurt(reason: String) -> bool:
  if invincible > 0 and position.y >= -8:
-  return
+  return true
+ if reason == "OBSTACLE COLLISION" and armor_charges > 0:
+  armor_charges -= 1
+  invincible = Rules.ARMOR_PROTECTION
+  notice.emit("ARMOR HIT — keep moving / protected for 2 seconds")
+  return true
  release_wire()
+ clear_obstacle_exceptions()
  if armor_charges > 0 or practice or invincible > 0:
   if not practice and invincible <= 0:
    armor_charges -= 1
@@ -311,6 +339,7 @@ func hurt(reason: String) -> void:
   notice.emit("PRACTICE RESCUE / " + reason if practice else "ARMOR SAVED YOU")
  else:
   die(reason)
+ return false
 
 func upgrade(key: String) -> void:
  if not tiers.has(key):

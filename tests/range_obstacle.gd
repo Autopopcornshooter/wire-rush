@@ -17,6 +17,11 @@ func check(ok: bool, description: String) -> void:
 
 func fixture() -> void:
  game.start_run(true)
+ # Legacy physics fixtures keep their original launch height; rooftop spawn has separate tests.
+ game.rider.position = Vector3(0, 6, 0)
+ game.rider.velocity = Vector3(0, 0, -12)
+ game.camera.position = game.rider.position + game.Rules.CAMERA_OFFSET
+ game.camera.look_at(game.rider.position + Vector3(0, 0.8, -9))
  game.rider.practice = false
  game.set_process(false)
  game.set_physics_process(false)

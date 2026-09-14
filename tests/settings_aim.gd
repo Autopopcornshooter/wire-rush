@@ -74,6 +74,11 @@ func run() -> void:
  check(game.phase == "menu", "Escape returns from settings to its parent screen")
 
  game.start_run(true)
+ # Legacy physics fixtures keep their original launch height; rooftop spawn has separate tests.
+ game.rider.position = Vector3(0, 6, 0)
+ game.rider.velocity = Vector3(0, 0, -12)
+ game.camera.position = game.rider.position + game.Rules.CAMERA_OFFSET
+ game.camera.look_at(game.rider.position + Vector3(0, 0.8, -9))
  game.phase = "paused"
  game.open_settings()
  game.rider.invincible = 5
@@ -156,6 +161,11 @@ func run() -> void:
  check(game.city.chunks.size() <= 8, "manual anchors do not leave old chunks permanently resident")
 
  game.start_run(true)
+ # Legacy physics fixtures keep their original launch height; rooftop spawn has separate tests.
+ game.rider.position = Vector3(0, 6, 0)
+ game.rider.velocity = Vector3(0, 0, -12)
+ game.camera.position = game.rider.position + game.Rules.CAMERA_OFFSET
+ game.camera.look_at(game.rider.position + Vector3(0, 0.8, -9))
  await physics_frame
  mouse(MOUSE_BUTTON_LEFT, true, first_point)
  mouse(MOUSE_BUTTON_LEFT, false, first_point)

@@ -2,6 +2,10 @@ extends RefCounted
 const FONT = preload("res://assets/fonts/ui_font.tres")
 var language: String = "ko"
 const KO: Dictionary = {
+ "RELEASE CONTROLS": "조작키를 놓아주세요",
+ "Aim now; held wire input fires when the countdown ends.": "미리 조준하세요. 누른 와이어 입력은 카운트다운 종료 시 발사됩니다.",
+ "ARMOR HIT — keep moving / protected for 2 seconds": "방어구 소모 — 그대로 진행 / 2초간 장애물 무적",
+ "Keep moving after a hit: blink and ignore obstacles for 2s. Hidden while armor remains.": "충돌해도 그대로 진행하며 2초간 점멸·장애물 무적. 보유 중에는 선택지에서 제외됩니다.",
  "MANUAL SINGLE WIRE + E TWIN LAUNCH": "수동 한 줄 / E 두 줄 사출",
  "LAUNCH": "두 줄 사출",
  "TWIN LAUNCH": "두 줄 사출 강화",

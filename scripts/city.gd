@@ -125,6 +125,13 @@ func create_chunk(index: int) -> void:
  sign.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 
 
+func start_height() -> float:
+ var roof: float = 100
+ for child in chunks[0].get_children():
+  if child.get_meta("building", false) and is_equal_approx(child.position.z, -8):
+   roof = minf(roof, child.get_meta("height"))
+ return roof + 1.0
+
 func has_building(index: int, slot: int, side: int) -> bool:
  if route != "sparse" or index < 2:
   return true
