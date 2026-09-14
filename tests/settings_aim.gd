@@ -168,7 +168,7 @@ func run() -> void:
  game.close_settings()
  game.phase = "playing"
  await physics_frame
- check(not game.rider.has_method("fire") and not game.rider.has_method("launch") and not game.city.has_method("find_anchor"), "preset anchors and simultaneous launch are removed")
+ check(not game.rider.has_method("fire") and game.rider.has_method("launch") and not game.city.has_method("find_anchor"), "manual wire stays primary while E twin launch is restored")
 
  print("SETTINGS_AIM_RESULT ", checks - failures, "/", checks, " passed; failures=", failures)
  game.free()

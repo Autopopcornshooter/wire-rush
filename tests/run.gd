@@ -51,7 +51,7 @@ func run() -> void:
  game.set_process(false)
  await fixture()
  check(Rules.progress(80, -40, 0) == 80 and Rules.progress(80, -90, 0) == 90, "distance rewards only new forward travel")
- check(not Rules.UPGRADES.has("launcher") and not game.rider.has_method("launch"), "two-wire launch perk and action are removed")
+ check(Rules.UPGRADES.has("launcher") and game.rider.has_method("launch"), "two-wire launch and its speed upgrade are restored")
  check(not game.city.has_method("find_anchor") and not game.city.has_method("add_anchor"), "automatic anchor network is removed")
  check((game.camera.position - game.rider.position).is_equal_approx(Vector3(0, 4.5, 12)), "distant camera stays restored")
  check(shoot(18), "manual wall shot succeeds")
@@ -273,7 +273,7 @@ func run() -> void:
  await fixture()
  game.xp = 250
  game.open_upgrades()
- check(game.phase == "upgrade" and not game.choices.has("launcher"), "upgrade cards contain no removed launch ability")
+ check(game.phase == "upgrade" and game.choices.all(func(key: String): return Rules.UPGRADES.has(key)), "upgrade cards contain supported abilities")
  var frozen: Vector3 = game.rider.position
  game._physics_process(0.5)
  check(game.rider.position == frozen, "upgrade selection freezes simulation")

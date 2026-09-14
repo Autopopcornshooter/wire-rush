@@ -2,22 +2,25 @@
 
 건물과 공중 장애물에 한 줄 와이어를 직접 걸어 스윙하고, 플레이어가 낮게 내려왔을 때 줄을 놓고 착지하는 3D 게임 프로토타입.
 
-**v0.5.2 · Godot 4.7.1 · Windows x64 · 한국어/English · 오프라인 싱글플레이**
+**v0.6.0 · Godot 4.7.1 · Windows x64 · 한국어/English · 오프라인 싱글플레이**
 
 ![Wire Rush gameplay](docs/screenshots/gameplay.png)
 
 ## 실행과 조작
 
-로컬 `builds/WireRush-0.5.2-Windows.zip`을 풀고 `WireRush.exe`를 실행합니다. 엔진 설치 없이 실행할 수 있습니다.
+로컬 `builds/WireRush-0.6.0-Windows.zip`을 풀고 `WireRush.exe`를 실행합니다. 엔진 설치 없이 실행할 수 있습니다.
 
 - **좌·우 마우스 버튼 유지:** 커서가 가리킨 건물 또는 공중 장애물에 수동 연결하고 자동으로 줄을 감습니다.
 - **반대 버튼:** 현재 한 줄을 새 지점으로 옮깁니다. 활성 버튼을 놓으면 관성을 유지하며 해제합니다.
 - **먼 곳 조준:** 최대 사거리 부근의 실제 건물·공중 장애물 표면으로 보정합니다. 청록색 보정 표식이 연결될 위치입니다.
+- **E:** 전방 양쪽 건물에 두 줄 동시 사출. 두 앵커의 중간 방향으로 돌진하며 **무적 없음**, 재사용 10초. 시작부터 사용 가능합니다.
 - **Space:** 지상·스케이트에서 점프. **A/D:** 조향.
 - **Esc:** 일시정지·설정. **R:** 재시작. **1/2/3:** 레벨업 선택.
 - 설정에서는 한국어/English를 즉시 바꾸고 저장할 수 있습니다.
 
-자동 앵커, 두 와이어 모드, E 양측 사출과 해당 업그레이드는 제거했습니다. 이전 설정 파일의 조준·와이어 개수 값도 사용하지 않습니다.
+일반 스윙은 수동 한 줄이며 E 두 줄 사출과 속도 강화 퍽을 복구했습니다. 자동 앵커 네트워크와 마우스 두 줄 독립 모드는 사용하지 않습니다.
+
+설정의 배치 비교에서 **기존 배치 / A: 건물 간격 / B: 수직 차단벽**을 선택한 뒤 새로 시작하세요. A/B는 기존 최고 기록을 갱신하지 않습니다. [51회 자동 주행 비교 결과](docs/ROUTE_COMPARISON.md)에 시험 조건과 한계를 기록했습니다.
 
 ![먼 조준의 사거리 보정 표식](docs/screenshots/range-assist.png)
 
@@ -40,6 +43,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Windows.ps1 -G
 
 템플릿은 실행 엔진과 일치하는 공식 Windows export templates를 사용합니다. 엔진·템플릿·빌드 파일은 Git에 넣지 않습니다. `--test`는 기록 파일을 쓰지 않는 검증 모드입니다.
 
+- [배치 비교 결과](docs/ROUTE_COMPARISON.md)
 - [진행 현황과 검증 범위](docs/PROGRESS_OVERVIEW.md)
 - [설계 및 원문 대비 결정](docs/IMPLEMENTATION.md)
 - [원문 자료](docs/ORIGINAL_BRIEF.md)

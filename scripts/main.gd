@@ -11,6 +11,8 @@ var settings_return: String = "menu"
 var settings_error: bool = false
 var aim_screen := Vector2(640, 260)
 var aim_preview: Dictionary = {}
+var pending_launch: bool = false
+var launch_available: bool = false
 var pending_mouse: Array[Dictionary] = []
 var city: Node3D
 var rider: CharacterBody3D
@@ -99,6 +101,7 @@ func create_world(practice: bool) -> void:
  city = City.new()
  city.locale = locale
  city.practice = practice
+ city.route = preferences.route
  add_child(city)
  city.update_chunks(0)
  rider = Rider.new()
@@ -111,6 +114,7 @@ func create_world(practice: bool) -> void:
 
 func start_run(practice: bool) -> void:
  pending_mouse.clear()
+ pending_launch = false
  aim_preview.clear()
  training = practice
  create_world(practice)
@@ -130,6 +134,7 @@ func _input(event: InputEvent) -> void:
    if phase == "playing":
     phase = "paused"
     pending_mouse.clear()
+    pending_launch = false
     hud.rebuild_buttons()
    elif phase == "paused":
     resume()
@@ -151,6 +156,8 @@ func _input(event: InputEvent) -> void:
   if phase == "playing":
    if event.keycode == KEY_SPACE:
     rider.jump()
+   elif event.keycode == KEY_E:
+    pending_launch = true
  if event is InputEventMouseMotion:
   aim_screen = event.position
  if event is InputEventMouseButton and phase == "playing":
@@ -163,6 +170,7 @@ func _notification(what: int) -> void:
  if what == NOTIFICATION_APPLICATION_FOCUS_OUT and phase == "playing" and not demo:
   phase = "paused"
   pending_mouse.clear()
+  pending_launch = false
   if is_instance_valid(hud):
    hud.rebuild_buttons()
 
@@ -191,7 +199,7 @@ func _physics_process(delta: float) -> void:
  xp += collected
  if collected > 0:
   tone(960, 0.055)
- city.update_chunks(distance, rider.anchor)
+ city.update_chunks(distance, rider.anchor, rider.twin_anchors)
  if rider.position.z < -2048:
   city.rebase(2048)
   rider.position.z += 2048
@@ -218,6 +226,8 @@ func _process(delta: float) -> void:
    capture.call_deferred()
 
 func process_mouse_commands() -> void:
+ if pending_launch:
+  rider.launch()
  for command in pending_mouse:
   if command.pressed:
    var selection: Dictionary = city.manual_target(rider.position, command.origin, command.direction, rider.reach(), rider.get_rid())
@@ -225,15 +235,18 @@ func process_mouse_commands() -> void:
   else:
    rider.release_side(command.side)
  pending_mouse.clear()
+ pending_launch = false
 
 func update_targets() -> void:
  aim_preview = city.manual_target(rider.position, camera.project_ray_origin(aim_screen), camera.project_ray_normal(aim_screen), rider.reach(), rider.get_rid())
+ launch_available = rider.launch_cooldown <= 0 and city.launch_targets(rider.position, rider.reach(), rider.get_rid()).size() == 2
 
 func open_settings() -> void:
  if phase not in ["menu", "paused"]:
   return
  settings_return = phase
  pending_mouse.clear()
+ pending_launch = false
  phase = "settings"
  hud.rebuild_buttons()
 
@@ -242,6 +255,14 @@ func close_settings() -> void:
   return
  phase = settings_return
  pending_mouse.clear()
+ pending_launch = false
+ hud.rebuild_buttons()
+
+func set_route(route: String) -> void:
+ if not Rules.ROUTES.has(route):
+  return
+ preferences.route = route
+ save_preferences()
  hud.rebuild_buttons()
 
 func set_language(language: String) -> void:
@@ -284,10 +305,11 @@ func capture() -> void:
  get_tree().quit()
 
 func gameplay_released() -> bool:
- return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE)
+ return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_E)
 
 func resume() -> void:
  pending_mouse.clear()
+ pending_launch = false
  rider.release_wire()
  phase = "countdown"
  countdown = 1
@@ -295,6 +317,7 @@ func resume() -> void:
 
 func return_menu() -> void:
  pending_mouse.clear()
+ pending_launch = false
  phase = "menu"
  create_world(false)
  hud.rebuild_buttons()
@@ -319,6 +342,7 @@ func open_upgrades() -> void:
   return
  phase = "upgrade"
  pending_mouse.clear()
+ pending_launch = false
  hud.rebuild_buttons()
  tone(620, 0.13)
 
@@ -333,8 +357,9 @@ func choose(index: int) -> void:
 func end_run(reason: String) -> void:
  phase = "dead"
  pending_mouse.clear()
+ pending_launch = false
  death_reason = reason
- if not training and distance > best:
+ if not training and city.route == "standard" and distance > best:
   best = distance
   if save_enabled:
    var save := ConfigFile.new()

@@ -8,6 +8,7 @@ var pickups: Array[Node3D] = []
 var origin_offset: float = 0
 var high_level: int = 0
 var practice: bool = false
+var route: String = "standard"
 var material_cache: Dictionary = {}
 var locale = Locale.new()
 
@@ -43,7 +44,7 @@ func box(parent: Node3D, pos: Vector3, size: Vector3, color: Color, solid: bool 
   root.add_child(collision)
  return root
 
-func update_chunks(distance: float, attached: Node3D = null) -> void:
+func update_chunks(distance: float, attached: Node3D = null, extra_anchors: Array[Node3D] = []) -> void:
  var current: int = floori(distance / LENGTH)
  for index in range(maxi(0, current - 1), current + 6):
   if not chunks.has(index):
@@ -51,7 +52,7 @@ func update_chunks(distance: float, attached: Node3D = null) -> void:
  for key in chunks.keys():
   if key < current - 2:
    var chunk: Node3D = chunks[key]
-   if is_instance_valid(attached) and chunk.is_ancestor_of(attached):
+   if (is_instance_valid(attached) and chunk.is_ancestor_of(attached)) or extra_anchors.any(func(n: Node3D): return is_instance_valid(n) and chunk.is_ancestor_of(n)):
     continue
    for i in range(pickups.size() - 1, -1, -1):
     if chunk.is_ancestor_of(pickups[i]):
@@ -71,6 +72,8 @@ func create_chunk(index: int) -> void:
  for side in [-1, 1]:
   box(chunk, Vector3(side * 6.8, 0.035, -32), Vector3(0.1, 0.05, 64), Color("52d8cf"), false, true)
   for b in range(4):
+   if not has_building(index, b, side):
+    continue
    var z: float = -8 - b * 16
    var base_height: float = 23 + posmod(index * 7 + b * 3 + side, 5) * 3
    var building := box(chunk, Vector3(side * 11.4, 0, z), Vector3(8, base_height, 14), Color("233c56") if (index + b) % 2 == 0 else Color("294860"), true)
@@ -87,6 +90,8 @@ func create_chunk(index: int) -> void:
    resize_building(building)
    # A continuous 5m stripe helps judge player height before releasing.
    box(chunk, Vector3(side * 7.32, 5, z), Vector3(0.08, 0.1, 12), Color("63b2bb"), false, true)
+ if route == "barriers" and index >= 2:
+  add_barrier(chunk, -1 if index % 2 == 0 else 1)
  for stripe in range(8):
   box(chunk, Vector3(0, 0.025, -stripe * 8 - 4), Vector3(0.08, 0.035, 3), Color("45627a"))
  if kind > 0:
@@ -119,6 +124,66 @@ func create_chunk(index: int) -> void:
  sign.modulate = Color("a4c9d8")
  sign.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 
+
+func has_building(index: int, slot: int, side: int) -> bool:
+ if route != "sparse" or index < 2:
+  return true
+ # 128m alternating sections; the first 16m has both walls as a transition.
+ var section: int = floori(float(index - 2) / 2)
+ if index % 2 == 0 and slot == 0:
+  return true
+ return side == (1 if section % 2 == 0 else -1)
+
+func add_barrier(chunk: Node3D, side: int) -> void:
+ var barrier := box(chunk, Vector3(side * 3.3, 0, -32), Vector3(8.7, 1, 3), Color("842e42"), true)
+ barrier.set_meta("side_barrier", true)
+ barrier.set_meta("side", side)
+ resize_barrier(barrier)
+ var hint := Label3D.new()
+ hint.name = "SideHint"
+ barrier.add_child(hint)
+ hint.font = Locale.FONT
+ hint.set_meta("message", "LEFT CLOSED > RIGHT WALL" if side < 0 else "RIGHT CLOSED > LEFT WALL")
+ hint.text = locale.text(hint.get_meta("message"))
+ hint.position = Vector3(-side * 1.0, 13 + Rules.BUILDING_BONUS[high_level] * 0.5, 1.6)
+ hint.font_size = 36
+ hint.pixel_size = 0.018
+ hint.modulate = Color("ffcf93")
+ for i in range(4):
+  box(chunk, Vector3(-side * 2.8, 0.04, 8 - i * 8), Vector3(1.8, 0.04, 0.8), Color("ffb96b"), false, true)
+
+func resize_barrier(barrier: Node3D) -> void:
+ var height: float = 40 + Rules.BUILDING_BONUS[high_level]
+ var mesh: MeshInstance3D = barrier.get_child(0)
+ var collision: CollisionShape3D = barrier.get_child(1)
+ mesh.mesh.size.y = height
+ mesh.position.y = height * 0.5
+ collision.shape.size.y = height
+ collision.position.y = height * 0.5
+ barrier.set_meta("height", height)
+ if barrier.has_node("SideHint"):
+  barrier.get_node("SideHint").position.y = 13 + Rules.BUILDING_BONUS[high_level] * 0.5
+
+func launch_targets(from: Vector3, reach: float, exclude: RID) -> Array[Dictionary]:
+ var pair: Array[Dictionary] = []
+ for side in [-1, 1]:
+  var best: Dictionary = {}
+  for ahead in [16.0, 20.0, 12.0, 24.0, 8.0]:
+   var desired := Vector3(side * 7.4, maxf(4, from.y + 4), from.z - ahead)
+   var ray := PhysicsRayQueryParameters3D.create(from, desired + Vector3(side * 0.2, 0, 0), 1)
+   ray.exclude = [exclude]
+   var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(ray)
+   if hit.is_empty() or not hit.collider.get_meta("building", false) or signf(hit.position.x) != side:
+    continue
+   var candidate: Dictionary = validate_manual_point(from, hit.position, hit.normal, hit.collider, reach, exclude)
+   if candidate.valid:
+    best = candidate
+    break
+  if best.is_empty():
+   return []
+  pair.append(best)
+ return pair
+
 func resize_building(building: Node3D) -> void:
  var height: float = float(building.get_meta("base_height")) + Rules.BUILDING_BONUS[high_level]
  var mesh: MeshInstance3D = building.get_child(0)
@@ -139,6 +204,8 @@ func apply_height_level(level: int) -> void:
   for child in chunk.get_children():
    if child.get_meta("building", false):
     resize_building(child)
+   elif child.get_meta("side_barrier", false):
+    resize_barrier(child)
    elif child.get_meta("hazard", false):
     child.position.y = float(child.get_meta("base_y")) + Rules.BUILDING_BONUS[high_level] * 0.8
   chunk.get_node("RouteSign").position.y = 15 + Rules.BUILDING_BONUS[high_level] * 0.8
@@ -157,6 +224,9 @@ func refresh_language() -> void:
  for chunk in chunks.values():
   var sign: Label3D = chunk.get_node("RouteSign")
   sign.text = "%02d / %s" % [sign.get_meta("index"), locale.text(sign.get_meta("route"))]
+  for child in chunk.get_children():
+   if child.has_node("SideHint"):
+    child.get_node("SideHint").text = locale.text(child.get_node("SideHint").get_meta("message"))
 
 func manual_target(from: Vector3, ray_origin: Vector3, direction: Vector3, reach: float, exclude: RID) -> Dictionary:
  var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_origin + direction.normalized() * 500.0, 1)

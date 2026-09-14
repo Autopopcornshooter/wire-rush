@@ -16,8 +16,12 @@ var last_release_height: float = 0
 var fresh_landing_hook: bool = false
 var jump_exempt: bool = false
 var invincible: float = 0
+var launch_left: float = 0
+var launch_cooldown: float = 0
+var launch_velocity := Vector3.ZERO
+var twin_anchors: Array[Node3D] = []
 var armor_charges: int = 0
-var tiers: Dictionary = {"skates": 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0}
+var tiers: Dictionary = {"skates": 0, "launcher": 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0}
 var practice: bool = false
 var visuals: Node3D
 var wire_mesh: MeshInstance3D
@@ -61,8 +65,9 @@ func reset(training: bool) -> void:
  mode = "air"
  position = Vector3(0, 6, 0)
  velocity = Vector3(0, 0, -12)
- tiers = {"skates": 1 if training else 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0}
+ tiers = {"skates": 1 if training else 0, "launcher": 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0}
  armor_charges = 0
+ launch_cooldown = 0
  invincible = 0
  last_release_height = 0
  fresh_landing_hook = false
@@ -74,7 +79,9 @@ func reach() -> float:
  return Rules.ROPE_RANGE * (1.0 + tiers.range * 0.1)
 
 func fire_manual(selection: Dictionary, side: int) -> bool:
- if mode == "dead" or not selection.get("valid", false):
+ if mode == "dead" or launch_left > 0:
+  return false
+ if not selection.get("valid", false):
   notice.emit(selection.get("reason", "AIM AT A SURFACE"))
   return false
  var checked: Dictionary = city.validate_manual_point(global_position, selection.surface_point, selection.normal, selection.surface, reach(), get_rid())
@@ -94,6 +101,8 @@ func fire_manual(selection: Dictionary, side: int) -> bool:
  return true
 
 func release_wire() -> void:
+ if not twin_anchors.is_empty():
+  finish_launch()
  if is_instance_valid(anchor):
   if hook_connected:
    last_release_height = global_position.y
@@ -107,6 +116,43 @@ func release_wire() -> void:
   mode = "air"
  # Only detaching a connected wire records player height. Empty/in-flight releases
  # preserve this history, including repeated cleanup and pause/resume calls.
+
+func launch() -> bool:
+ if mode == "dead" or launch_left > 0:
+  return false
+ if launch_cooldown > 0:
+  notice.emit("TWIN LAUNCH COOLING DOWN")
+  return false
+ var targets: Array[Dictionary] = city.launch_targets(global_position, reach(), get_rid())
+ if targets.size() != 2:
+  notice.emit("TWIN LAUNCH NEEDS TWO FORWARD WALLS")
+  return false
+ release_wire()
+ for target in targets:
+  var point := Node3D.new()
+  target.surface.add_child(point)
+  point.global_position = target.point
+  twin_anchors.append(point)
+ var displacement: Vector3 = (twin_anchors[0].global_position + twin_anchors[1].global_position) * 0.5 - global_position
+ launch_velocity = displacement.normalized() * Rules.LAUNCH_SPEEDS[tiers.launcher]
+ launch_left = minf(Rules.LAUNCH_SECONDS, maxf(0.01, displacement.length() - 1.5) / launch_velocity.length())
+ launch_cooldown = Rules.LAUNCH_COOLDOWN
+ velocity = launch_velocity
+ mode = "launch"
+ jump_exempt = false
+ fresh_landing_hook = true
+ notice.emit("TWIN LAUNCH — collisions remain dangerous")
+ return true
+
+func finish_launch() -> void:
+ last_release_height = global_position.y
+ for point in twin_anchors:
+  if is_instance_valid(point):
+   point.queue_free()
+ twin_anchors.clear()
+ launch_left = 0
+ if mode == "launch":
+  mode = "air"
 
 func release_side(side: int) -> void:
  if wire_side == side:
@@ -123,7 +169,7 @@ func jump() -> void:
 
 func landing_height() -> float:
  # While attached, preview the result of releasing at the current player height.
- return global_position.y if is_instance_valid(anchor) and hook_connected else last_release_height
+ return global_position.y if (is_instance_valid(anchor) and hook_connected) or not twin_anchors.is_empty() else last_release_height
 
 func landing_safe() -> bool:
  return jump_exempt or landing_height() <= Rules.SAFE_RELEASE_HEIGHT + 0.00001
@@ -141,7 +187,12 @@ func integrate(dt: float, steer: float) -> void:
  if mode == "dead":
   return
  invincible = maxf(0, invincible - dt)
- if mode == "ground":
+ launch_cooldown = maxf(0, launch_cooldown - dt)
+ var launching: bool = launch_left > 0
+ if launching:
+  velocity = launch_velocity
+  launch_left = maxf(0, launch_left - dt)
+ elif mode == "ground":
   velocity.z = 0
   velocity.x = move_toward(velocity.x, steer * 4.5, 18 * dt)
  elif mode == "slide":
@@ -155,7 +206,8 @@ func integrate(dt: float, steer: float) -> void:
    stop_on_ground()
  else:
   velocity.x = move_toward(velocity.x, steer * 5, 3.5 * dt)
- velocity.y -= Rules.GRAVITY * dt
+ if not launching:
+  velocity.y -= Rules.GRAVITY * dt
  if is_instance_valid(anchor):
   hook_left -= dt
   var surface: Node3D = anchor.get_parent() if hook_connected else null
@@ -191,7 +243,7 @@ func integrate(dt: float, steer: float) -> void:
   var collider: Object = hit.get_collider()
   if normal.y > 0.7 and collider.get_meta("road", false):
    touched_floor = true
-   if mode in ["air", "swing"]:
+   if mode in ["air", "swing", "launch"]:
     land(incoming)
     if mode in ["dead", "ground"]:
      return
@@ -202,6 +254,8 @@ func integrate(dt: float, steer: float) -> void:
   else:
    velocity = velocity.slide(normal) * 0.85
   motion = hit.get_remainder().slide(normal)
+ if launching and launch_left <= 0 and not twin_anchors.is_empty():
+  finish_launch()
  if mode in ["ground", "slide"] and not touched_floor and velocity.y < -0.5:
   mode = "air"
  if position.y < -8:
@@ -269,13 +323,14 @@ func upgrade(key: String) -> void:
 
 func draw_wire() -> void:
  wire_surface.clear_surfaces()
- if not is_instance_valid(anchor):
+ if not is_instance_valid(anchor) and twin_anchors.is_empty():
   return
  wire_surface.surface_begin(Mesh.PRIMITIVE_LINES)
  wire_surface.surface_set_color(Color("78f9e5"))
- var target: Vector3 = anchor.global_position
- if hook_left > 0:
-  target = global_position.lerp(target, 1 - hook_left / hook_duration)
- wire_surface.surface_add_vertex(global_position + Vector3(0, 0.3, 0))
- wire_surface.surface_add_vertex(target)
+ for target_node in ([anchor] if is_instance_valid(anchor) else twin_anchors):
+  var target: Vector3 = target_node.global_position
+  if hook_left > 0:
+   target = global_position.lerp(target, 1 - hook_left / hook_duration)
+  wire_surface.surface_add_vertex(global_position + Vector3(0, 0.3, 0))
+  wire_surface.surface_add_vertex(target)
  wire_surface.surface_end()
