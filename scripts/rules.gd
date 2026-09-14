@@ -6,27 +6,24 @@ const HOOK_SPEED: float = 80.0
 const ROPE_RANGE: float = 30.0
 const REEL_SPEED: float = 5.0
 const SAFE_RELEASE_HEIGHT: float = 5.0
-const LAUNCH_SPEEDS: Array[float] = [28.0, 30.0, 32.0, 35.0]
-const LAUNCH_SECONDS: float = 0.65
-const LAUNCH_COOLDOWN: float = 10.0
-const ROUTES: Dictionary = {"standard": "STANDARD", "sparse": "SPARSE BUILDINGS", "barriers": "VERTICAL BARRIERS"}
+const DOUBLE_JUMP_COOLDOWN: Array[float] = [10.0, 7.0, 5.0]
+const WALL_JUMP_PUSH: float = 8.5
 const STOP_SPEED: float = 0.15
-const SKATE_FRICTION: Array[float] = [0.9, 0.35, 0.22, 0.12]
+const SLIDE_SECONDS: Array[float] = [0.0, 2.0, 3.0, 4.0]
 const BUILDING_BONUS: Array[float] = [0.0, 10.0, 20.0, 30.0]
 const ARMOR_PROTECTION: float = 2.0
 const COUNTDOWN_BEAT: float = 0.7
 const CAMERA_DAMPING: float = 5.0
-const RESUME_PROTECTION: float = 2.0
 const CAMERA_OFFSET := Vector3(0, 4.5, 12.0)
 const UPGRADES: Dictionary = {
- "skates": ["ROLLER SKATES", "Lower ground friction each tier: 0.35 / 0.22 / 0.12. Release at player height 5m or below to slide."],
- "launcher": ["TWIN LAUNCH", "E: dash toward two forward wall anchors. Speed upgrade; no invulnerability. 10s cooldown."],
+ "skates": ["ROLLER SKATES", "Keep landing speed for 2 / 3 / 4 seconds. Release at player height 5m or below to slide."],
  "armor": ["IMPACT ARMOR", "Keep moving after a hit: blink and ignore obstacles for 2s. Hidden while armor remains."],
  "high": ["TALLER BUILDINGS", "Raise buildings by 10 / 20 / 30m. Aerial obstacles also rise."],
  "range": ["LONGER WIRE", "+10% wire reach. Connect to a more distant point."],
  "reel": ["FAST REEL", "+15% automatic reel speed while holding the mouse button."],
  "hook": ["FAST HOOK", "+20% hook speed. Recover sooner after firing."],
- "jump": ["HIGH JUMP", "+10% jump height. Unhooked jumps are safe to land."],
+ "jump": ["HIGH JUMP", "+10% jump height for ground jumps, wall jumps, and double jumps alike."],
+ "double_jump": ["DOUBLE JUMP", "Unlocks an extra air jump. Recharges in 10 / 7 / 5s as you level it up. Separate from jump height."],
 }
 static func xp_required(level: int) -> int:
  return roundi(180.0 * pow(1.25, mini(level - 1, 8)))

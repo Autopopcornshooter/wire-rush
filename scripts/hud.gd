@@ -6,6 +6,14 @@ var buttons: Array[Button] = []
 var cyan := Color("76efdc")
 var muted := Color("90a7bc")
 var white := Color("ecf3f5")
+var gold := Color("ffc876")
+var last_pending_upgrades: int = -1
+var levelup_trigger_time: float = -10.0
+const LEVELUP_POPUP_DURATION: float = 1.0
+const LEVELUP_POPUP_FADE_IN: float = 0.15
+const LEVELUP_POPUP_HOLD_END: float = 0.75
+const UPGRADE_BUMP_DURATION: float = 0.35
+const XP_FLASH_DURATION: float = 0.5
 
 func _ready() -> void:
  set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -21,6 +29,11 @@ func label_at(at: Vector2, text: String, size_px: int = 18, color: Color = white
   while adjusted > 11 and font.get_string_size(translated, HORIZONTAL_ALIGNMENT_LEFT, -1, adjusted).x > max_width:
    adjusted -= 1
  draw_string(font, at, translated, HORIZONTAL_ALIGNMENT_LEFT, -1, adjusted, color)
+
+func label_centered(center_x: float, y: float, text: String, size_px: int = 18, color: Color = white) -> void:
+ var translated: String = t(text)
+ var width: float = font.get_string_size(translated, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+ draw_string(font, Vector2(center_x - width * 0.5, y), translated, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, color)
 
 func panel(rect: Rect2, alpha: float = 0.92) -> void:
  draw_style_box(style(Color(0.035, 0.065, 0.11, alpha)), rect)
@@ -42,24 +55,21 @@ func rebuild_buttons() -> void:
   button.queue_free()
  buttons.clear()
  if game.phase == "menu":
-  add_button("START RUN   /   ENTER", Rect2(76, 429, 340, 54), func(): game.start_run(false))
-  add_button("PRACTICE   /   P", Rect2(76, 496, 340, 54), func(): game.start_run(true))
+  add_button("Start Run", Rect2(76, 429, 340, 54), func(): game.start_run(false))
+  add_button("Practice", Rect2(76, 496, 340, 54), func(): game.start_run(true))
   add_button("SETTINGS", Rect2(76, 563, 164, 40), game.open_settings)
   add_button("QUIT", Rect2(252, 563, 164, 40), func(): game.get_tree().quit())
  elif game.phase == "dead":
   add_button("RUN AGAIN   /   R", Rect2(440, 461, 400, 54), func(): game.start_run(game.training))
   add_button("MAIN MENU", Rect2(440, 529, 400, 46), game.return_menu)
  elif game.phase == "paused":
-  add_button("RESUME   /   ESC", Rect2(440, 338, 400, 54), game.resume)
-  add_button("SETTINGS", Rect2(440, 408, 400, 48), game.open_settings)
-  add_button("MAIN MENU", Rect2(440, 476, 400, 48), game.return_menu)
+  add_button("Resume", Rect2(440, 358, 400, 54), game.resume)
+  add_button("SETTINGS", Rect2(440, 428, 400, 48), game.open_settings)
+  add_button("MAIN MENU", Rect2(440, 496, 400, 48), game.return_menu)
  elif game.phase == "settings":
   add_button("한국어", Rect2(590, 155, 150, 46), func(): game.set_language("ko"), game.preferences.language == "ko")
   add_button("English", Rect2(755, 155, 150, 46), func(): game.set_language("en"), game.preferences.language == "en")
-  for i in range(3):
-   var route: String = Rules.ROUTES.keys()[i]
-   add_button(Rules.ROUTES[route], Rect2(350 + i * 185, 250, 175, 42), func(): game.set_route(route), game.preferences.route == route)
-  add_button("BACK   /   ESC", Rect2(520, 585, 240, 46), game.close_settings)
+  add_button("BACK   /   ESC", Rect2(520, 340, 240, 46), game.close_settings)
  elif game.phase == "upgrade":
   for i in range(game.choices.size()):
    var slot: int = i
@@ -86,56 +96,36 @@ func add_button(text: String, rect: Rect2, action: Callable, selected: bool = fa
 func _draw() -> void:
  if game == null:
   return
+ # Pure presentation: detect a level-up by watching the existing pending_upgrades
+ # counter change, without touching how or when main.gd increments it.
+ var now: float = Time.get_ticks_msec() / 1000.0
+ if last_pending_upgrades >= 0 and game.pending_upgrades > last_pending_upgrades:
+  levelup_trigger_time = now
+  game.tone(880, 0.18)
+ last_pending_upgrades = game.pending_upgrades
  if game.phase == "settings":
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
-  panel(Rect2(310, 72, 660, 586))
+  panel(Rect2(310, 72, 660, 300))
   label_at(Vector2(350, 125), "SETTINGS", 30, cyan)
   label_at(Vector2(350, 187), "LANGUAGE", 20)
-  label_at(Vector2(350, 234), "ROUTE TEST / APPLIES NEXT RUN", 16, cyan, 580)
-  label_at(Vector2(350, 334), "MANUAL SINGLE WIRE + E TWIN LAUNCH", 21, cyan, 580)
-  label_at(Vector2(350, 370), "Other button replaces wire. Far aim adjusts to wire reach.", 16, muted, 580)
-  label_at(Vector2(350, 407), "E: two forward walls required. 10s cooldown. No invulnerability.", 16, white, 580)
-  label_at(Vector2(350, 444), "Release with player height at 5m or below: safe landing.", 16, cyan, 580)
-  label_at(Vector2(350, 481), "Release above 5m: fatal road landing, even with armor.", 16, Color("ffab8f"), 580)
-  label_at(Vector2(350, 518), "Unhooked jumps are exempt. Jumping alone does not renew skating.", 16, white, 580)
-  label_at(Vector2(350, 552), "Settings could not be saved. They apply for this session." if game.settings_error else "Language and next route are saved automatically.", 14, muted, 580)
+  label_at(Vector2(350, 300), "Settings could not be saved. They apply for this session." if game.settings_error else "Language is saved automatically.", 14, muted, 580)
   return
  if game.phase == "menu":
   panel(Rect2(42, 62, 420, 584))
-  label_at(Vector2(76, 113), "PROTOTYPE 06  /  GODOT 4", 15, cyan)
   label_at(Vector2(72, 185), "WIRE", 68)
   label_at(Vector2(72, 254), "RUSH", 68)
-  label_at(Vector2(76, 298), "Find your rhythm above the city.", 18, muted)
-  label_at(Vector2(76, 343), "HOOK  >  SWING  >  RELEASE", 17, cyan)
-  label_at(Vector2(76, 370), "SLIDE  >  JUMP  >  RECONNECT", 17, cyan)
   label_at(Vector2(76, 405), t("Best distance  %04d m") % game.best, 17)
-  panel(Rect2(750, 457, 465, 190), 0.88)
-  label_at(Vector2(776, 493), "YOUR FIRST SWING", 17, cyan)
-  label_at(Vector2(776, 528), "Point at a wall or aerial obstacle to hook there.", 17, white, 418)
-  label_at(Vector2(776, 556), "Hold the mouse button to reel and climb automatically.", 17, white, 418)
-  label_at(Vector2(776, 584), "Release the wire when your height is 5m or below.", 17, white, 418)
-  label_at(Vector2(776, 620), "Practice: skates included; releasing above 5m risks a fatal landing.", 15, muted, 418)
-  label_at(Vector2(76, 630), "MANUAL SINGLE WIRE + E TWIN LAUNCH", 14, cyan, 350)
   return
- panel(Rect2(24, 22, 274, 107))
- label_at(Vector2(43, 50), "PRACTICE / AUTO RESCUE" if game.training else ("ROUTE TEST / NO RECORD" if game.city.route != "standard" else "DISTANCE / PERSONAL BEST"), 13, cyan)
+ panel(Rect2(24, 22, 300, 180))
+ label_at(Vector2(43, 50), "PRACTICE / AUTO RESCUE" if game.training else "DISTANCE / PERSONAL BEST", 13, cyan)
  label_at(Vector2(40, 100), "%04d" % game.distance, 44)
  label_at(Vector2(170, 98), "m   /   %04d" % game.best, 17, muted)
- panel(Rect2(1000, 22, 256, 107))
- label_at(Vector2(1020, 51), "SPEED", 13, muted)
- label_at(Vector2(1020, 99), "%02d" % game.rider.velocity.length(), 43)
- label_at(Vector2(1085, 97), "m/s  /  %s" % t(game.rider.mode.to_upper()), 14, cyan, 150)
- panel(Rect2(24, 145, 232, 143), 0.84)
- label_at(Vector2(42, 176), t("LV %02d   /   %d XP") % [game.level, game.xp], 16, white, 198)
- draw_rect(Rect2(42, 188, 196, 4), Color("263e53"))
- draw_rect(Rect2(42, 188, 196 * clampf(game.xp / Rules.xp_required(game.level), 0, 1), 4), cyan)
- label_at(Vector2(42, 219), t("SKATES  %d   /   ARMOR  %d") % [game.rider.tiers.skates, game.rider.armor_charges], 14, muted, 198)
- label_at(Vector2(42, 246), t("BUILDING HEIGHT  +%d m") % Rules.BUILDING_BONUS[game.rider.tiers.high], 14, cyan, 198)
- label_at(Vector2(42, 272), t("SKATE LANDINGS  %d") % game.rider.slides, 14, muted, 198)
- label_at(Vector2(325, 51), "MANUAL SINGLE WIRE + E TWIN LAUNCH", 16, cyan, 640)
- label_at(Vector2(325, 80), t("ROUTE / %s") % t(Rules.ROUTES[game.city.route]), 15, muted, 600)
- var launch_status: String = t("E / READY" if game.launch_available else "E / TWO WALLS NEEDED") if game.rider.launch_cooldown <= 0 else t("E / %.1f s") % game.rider.launch_cooldown
- label_at(Vector2(325, 109), launch_status, 16, cyan, 500)
+ label_at(Vector2(43, 138), t("SPEED %02d m/s   /   %s") % [game.rider.velocity.length(), t(game.rider.mode.to_upper())], 16, cyan, 260)
+ label_at(Vector2(43, 168), t("SKATES %d / ARMOR %d / HEIGHT +%dm / SLIDES %d") % [game.rider.tiers.skates, game.rider.armor_charges, Rules.BUILDING_BONUS[game.rider.tiers.high], game.rider.slides], 12, muted, 260)
+ panel(Rect2(24, 210, 150, 34), 0.8)
+ draw_style_box(style(Color(0.12, 0.2, 0.27, 0.95)), Rect2(32, 217, 38, 20))
+ label_at(Vector2(37, 231), "ESC", 11, white)
+ label_at(Vector2(80, 233), "PAUSE", 13, muted)
  if game.phase == "playing":
   var color: Color = cyan if game.aim_preview.get("valid", false) else Color("ffab8f")
   var cursor: Vector2 = game.aim_screen
@@ -144,54 +134,40 @@ func _draw() -> void:
   draw_line(cursor + Vector2(6, 0), cursor + Vector2(21, 0), color, 2)
   draw_line(cursor - Vector2(0, 21), cursor - Vector2(0, 6), color, 2)
   draw_line(cursor + Vector2(0, 6), cursor + Vector2(0, 21), color, 2)
-  var caption: String = t(game.aim_preview.get("reason", "AIM AT A BUILDING"))
-  if game.aim_preview.get("valid", false):
-   caption += " / %.1f m" % game.aim_preview.distance
-   caption += t(" / TARGET %.1fm") % game.aim_preview.surface_point.y
-   if game.aim_preview.get("adjusted", false) and not game.camera.is_position_behind(game.aim_preview.point):
-    var assisted: Vector2 = game.camera.unproject_position(game.aim_preview.point)
-    draw_line(cursor, assisted, Color(cyan, 0.5), 1, true)
-    draw_arc(assisted, 9, 0, TAU, 24, cyan, 2, true)
-    draw_circle(assisted, 3, cyan)
-  var caption_pos := Vector2(clampf(cursor.x + 25, 25, 920), clampf(cursor.y - 24, 150, 570))
-  panel(Rect2(caption_pos - Vector2(8, 25), Vector2(334, 38)), 0.86)
-  label_at(caption_pos, caption, 15, color, 318)
-  for attached in [game.rider.anchor] + game.rider.twin_anchors:
-   if not is_instance_valid(attached) or game.camera.is_position_behind(attached.global_position):
-    continue
-   var locked: Vector2 = game.camera.unproject_position(attached.global_position)
+  if game.aim_preview.get("valid", false) and game.aim_preview.get("adjusted", false) and not game.camera.is_position_behind(game.aim_preview.point):
+   var assisted: Vector2 = game.camera.unproject_position(game.aim_preview.point)
+   draw_line(cursor, assisted, Color(cyan, 0.5), 1, true)
+   draw_arc(assisted, 9, 0, TAU, 24, cyan, 2, true)
+   draw_circle(assisted, 3, cyan)
+  if is_instance_valid(game.rider.anchor) and not game.camera.is_position_behind(game.rider.anchor.global_position):
+   var locked: Vector2 = game.camera.unproject_position(game.rider.anchor.global_position)
    draw_circle(locked, 5, cyan)
    draw_arc(locked, 10, 0, TAU, 24, cyan, 2, true)
-  if game.rider.mode in ["swing", "air", "launch"]:
-   var height_key: String = "PLAYER %.2fm / RELEASE NOW %s" if game.rider.hook_connected or game.rider.launch_left > 0 else "LAST RELEASE %.2fm / LANDING %s"
-   var landing_text: String = t("JUMP LANDING EXEMPT") if game.rider.jump_exempt else t(height_key) % [game.rider.landing_height(), t("SAFE" if game.rider.landing_safe() else "FATAL")]
-   label_at(Vector2(425, 563), landing_text, 17, cyan if game.rider.landing_safe() else Color("ffab8f"), 500)
-  if game.rider.invincible > 0:
-   panel(Rect2(475, 85, 330, 44))
-   label_at(Vector2(497, 114), t("OBSTACLE SHIELD / %.1f s") % game.rider.invincible, 20, cyan, 294)
   if game.rider.mode == "slide":
    panel(Rect2(24, 304, 310, 54))
-   label_at(Vector2(42, 339), t("FRICTION %.2f / %.1f m/s") % [Rules.SKATE_FRICTION[game.rider.tiers.skates], Vector2(game.rider.velocity.x, game.rider.velocity.z).length()], 20, cyan, 274)
- panel(Rect2(24, 651, 1232, 47), 0.87)
- label_at(Vector2(44, 681), "HOLD LMB / RMB  hook + reel     SPACE  jump     E  twin launch     A / D  steer     ESC  pause     R  restart", 16, muted, 1190)
- if game.notice_left > 0 and game.phase == "playing":
-  panel(Rect2(270, 593, 740, 40), 0.85)
-  label_at(Vector2(290, 620), game.locale.message(game.message), 17, cyan, 700)
+   label_at(Vector2(42, 339), t("SLIDE %.1fs LEFT / %.1f m/s") % [game.rider.slide_left, Vector2(game.rider.velocity.x, game.rider.velocity.z).length()], 20, cyan, 274)
+ label_at(Vector2(16, 693), t("LV %02d   /   %d XP") % [game.level, game.xp], 14, white, 260)
+ draw_upgrade_badge(now)
+ draw_xp_bar(now)
+ draw_levelup_popup(now)
  if game.phase in ["paused", "dead", "upgrade", "countdown"]:
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
  if game.phase == "paused":
-  label_at(Vector2(502, 280), "TAKE A BREATH", 34)
+  panel(Rect2(340, 150, 600, 410))
+  label_centered(640, 195, "PAUSED", 34, cyan)
+  label_centered(640, 250, "LMB/RMB hook + reel   /   SPACE jump   /   G upgrades", 14, muted)
+  label_centered(640, 276, "A/D steer   /   ESC pause   /   R restart", 14, muted)
  elif game.phase == "dead":
   panel(Rect2(382, 155, 516, 460))
-  label_at(Vector2(437, 211), "RUN COMPLETE", 30, cyan)
+  label_at(Vector2(437, 211), "RESULT", 30, cyan)
   label_at(Vector2(435, 280), "%04d m" % game.distance, 54)
-  label_at(Vector2(440, 321), game.locale.message(game.death_reason), 16, muted, 400)
   label_at(Vector2(440, 360), t("Top speed  %.1f m/s   /   Blocks  %d") % [game.rider.high_speed, int(game.distance / 64)], 19, white, 400)
   label_at(Vector2(440, 397), t("Skate landings  %d   /   Level  %d") % [game.rider.slides, game.level], 19, white, 400)
   label_at(Vector2(440, 430), t("Skates %d / Armor %d / Buildings %d") % [game.rider.tiers.skates, game.rider.tiers.armor, game.rider.tiers.high], 16, muted, 400)
  elif game.phase == "upgrade":
   label_at(Vector2(440, 207), "CHOOSE YOUR NEXT EDGE", 30, cyan)
-  label_at(Vector2(440, 247), t("Level %d  /  physics and timers are paused") % (game.level + 1), 18, muted)
+  var remaining_text: String = t(" / %d MORE QUEUED") % (game.pending_upgrades - 1) if game.pending_upgrades > 1 else ""
+  label_at(Vector2(440, 247), t("Level %d  /  physics and timers are paused") % game.level + remaining_text, 18, muted)
   for i in range(game.choices.size()):
    panel(Rect2(124 + i * 350, 282, 332, 215))
    var key: String = game.choices[i]
@@ -208,3 +184,59 @@ func _draw() -> void:
  elif game.phase == "countdown":
   label_at(Vector2(460, 325), t("READY  /  %d") % game.countdown_number() if game.countdown_started else t("RELEASE CONTROLS"), 48, cyan)
   label_at(Vector2(460, 370), "Aim now; held wire input fires when the countdown ends." if game.countdown_started else "Release all gameplay buttons to continue", 18, muted, 700)
+
+func draw_upgrade_badge(now: float) -> void:
+ if game.pending_upgrades <= 0:
+  return
+ var pivot := Vector2(1176, 692)
+ var since_bump: float = now - levelup_trigger_time
+ var bump: float = 0.0
+ if since_bump >= 0 and since_bump < UPGRADE_BUMP_DURATION:
+  bump = (1.0 - since_bump / UPGRADE_BUMP_DURATION)
+ var pulse: float = 0.5 + 0.5 * sin(now * 2.4)
+ var scale: float = 1.0 + 0.05 * pulse + 0.22 * bump
+ var glow_alpha: float = 0.12 + 0.1 * pulse + 0.35 * bump
+ var label_text: String = t("[G] UPGRADE") + " ×%d" % game.pending_upgrades
+ var width: float = font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+ var box_size := Vector2(width + 36, 34)
+ draw_set_transform(pivot, 0, Vector2(scale, scale))
+ # Soft layered glow behind the pill; cheap stand-in for a blurred outer glow.
+ draw_style_box(style(Color(gold, glow_alpha * 0.5)), Rect2(-box_size.x * 0.5 - 10, -box_size.y * 0.5 - 8, box_size.x + 20, box_size.y + 16))
+ draw_style_box(style(Color(0.035, 0.065, 0.11, 0.92)), Rect2(-box_size.x * 0.5, -box_size.y * 0.5, box_size.x, box_size.y))
+ var text_color := Color(gold, 0.85 + 0.15 * pulse)
+ draw_string(font, Vector2(-width * 0.5, 6), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, text_color)
+ draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+
+func draw_xp_bar(now: float) -> void:
+ var fraction: float = clampf(game.xp / Rules.xp_required(game.level), 0, 1)
+ var since_flash: float = now - levelup_trigger_time
+ var flash: float = 0.0
+ if since_flash >= 0 and since_flash < XP_FLASH_DURATION:
+  flash = 1.0 - since_flash / XP_FLASH_DURATION
+ draw_rect(Rect2(0, 712, 1280, 6), Color("263e53"))
+ draw_rect(Rect2(0, 712, 1280 * fraction, 6), cyan.lerp(white, flash * 0.7))
+ if flash > 0:
+  draw_rect(Rect2(0, 712 - flash * 2, 1280, 6 + flash * 4), Color(white, flash * 0.35))
+
+func draw_levelup_popup(now: float) -> void:
+ var elapsed: float = now - levelup_trigger_time
+ if elapsed < 0 or elapsed > LEVELUP_POPUP_DURATION:
+  return
+ var alpha: float
+ var pop_scale: float
+ if elapsed < LEVELUP_POPUP_FADE_IN:
+  var progress: float = elapsed / LEVELUP_POPUP_FADE_IN
+  alpha = progress
+  pop_scale = lerpf(1.28, 1.0, progress)
+ elif elapsed < LEVELUP_POPUP_HOLD_END:
+  alpha = 1.0
+  pop_scale = 1.0
+ else:
+  alpha = 1.0 - (elapsed - LEVELUP_POPUP_HOLD_END) / (LEVELUP_POPUP_DURATION - LEVELUP_POPUP_HOLD_END)
+  pop_scale = 1.0
+ var pivot := Vector2(640, 210)
+ draw_set_transform(pivot, 0, Vector2(pop_scale, pop_scale))
+ draw_style_box(style(Color(0.035, 0.065, 0.11, 0.85 * alpha)), Rect2(-160, -38, 320, 84))
+ label_centered(0, -8, "UPGRADE READY", 26, Color(gold, alpha))
+ label_centered(0, 22, "Upgrade Point +1", 15, Color(white, alpha))
+ draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)

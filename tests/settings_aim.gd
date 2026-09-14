@@ -66,7 +66,7 @@ func run() -> void:
  await process_frame
  game.hud.buttons[0].pressed.emit()
  check(game.hud.buttons[-1].text == "뒤로   /   ESC", "Korean selection updates settings buttons")
- check(game.city.chunks[0].get_node("RouteSign").text.contains("자유"), "existing city signs change language without rebuilding physics")
+ check(game.locale.language == "ko" and game.city.chunks.has(0), "existing city chunks survive a language change without rebuilding physics")
  var escape := InputEventKey.new()
  escape.keycode = KEY_ESCAPE
  escape.pressed = true
@@ -178,7 +178,7 @@ func run() -> void:
  game.close_settings()
  game.phase = "playing"
  await physics_frame
- check(not game.rider.has_method("fire") and game.rider.has_method("launch") and not game.city.has_method("find_anchor"), "manual wire stays primary while E twin launch is restored")
+ check(not game.rider.has_method("fire") and not game.rider.has_method("launch") and not game.city.has_method("find_anchor"), "manual wire stays primary; twin launch and auto anchors remain removed")
 
  print("SETTINGS_AIM_RESULT ", checks - failures, "/", checks, " passed; failures=", failures)
  game.free()

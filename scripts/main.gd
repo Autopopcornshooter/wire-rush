@@ -11,8 +11,6 @@ var settings_return: String = "menu"
 var settings_error: bool = false
 var aim_screen := Vector2(640, 260)
 var aim_preview: Dictionary = {}
-var pending_launch: bool = false
-var launch_available: bool = false
 var pending_mouse: Array[Dictionary] = []
 var city: Node3D
 var rider: CharacterBody3D
@@ -24,6 +22,8 @@ var distance: float = 0
 var best: float = 0
 var xp: float = 0
 var level: int = 1
+var pending_upgrades: int = 0
+var upgrades_taken: int = 0
 var choices: Array[String] = []
 var message: String = ""
 var notice_left: float = 0
@@ -106,7 +106,6 @@ func create_world(practice: bool) -> void:
  city = City.new()
  city.locale = locale
  city.practice = practice
- city.route = preferences.route
  add_child(city)
  city.update_chunks(0)
  rider = Rider.new()
@@ -119,7 +118,6 @@ func create_world(practice: bool) -> void:
 
 func start_run(practice: bool) -> void:
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
  aim_preview.clear()
  training = practice
@@ -127,6 +125,8 @@ func start_run(practice: bool) -> void:
  distance = 0
  xp = 0
  level = 1
+ pending_upgrades = 0
+ upgrades_taken = 0
  death_reason = ""
  phase = "playing"
  camera_pan = Vector2.ZERO
@@ -144,7 +144,6 @@ func _input(event: InputEvent) -> void:
    if phase in ["playing", "countdown"]:
     phase = "paused"
     pending_mouse.clear()
-    pending_launch = false
     pending_jump = false
     hud.rebuild_buttons()
    elif phase == "paused":
@@ -164,14 +163,15 @@ func _input(event: InputEvent) -> void:
   if event.keycode == KEY_R and phase in ["playing", "dead", "paused"]:
    start_run(training)
    return
+  if phase == "playing" and event.keycode == KEY_G and pending_upgrades > 0:
+   open_upgrades()
+   return
   if phase == "playing" or (phase == "countdown" and countdown_started):
    if event.keycode == KEY_SPACE:
     if phase == "playing":
      rider.jump()
     else:
      pending_jump = true
-   elif event.keycode == KEY_E:
-    pending_launch = true
  if event is InputEventMouseMotion:
   aim_screen = event.position
  if event is InputEventMouseButton and (phase == "playing" or (phase == "countdown" and countdown_started)):
@@ -184,7 +184,6 @@ func _notification(what: int) -> void:
  if what == NOTIFICATION_APPLICATION_FOCUS_OUT and phase in ["playing", "countdown"] and not demo:
   phase = "paused"
   pending_mouse.clear()
-  pending_launch = false
   pending_jump = false
   if is_instance_valid(hud):
    hud.rebuild_buttons()
@@ -201,9 +200,7 @@ func _physics_process(delta: float) -> void:
    countdown = maxf(0, countdown - delta)
    if countdown <= 0:
     phase = "playing"
-    rider.invincible = maxf(rider.invincible, Rules.RESUME_PROTECTION)
     tone(880, 0.12)
-    show_notice("RESUME SHIELD — protected for 2 seconds")
    elif countdown_number() != previous_number:
     tone(440, 0.08)
  if phase != "playing":
@@ -222,15 +219,18 @@ func _physics_process(delta: float) -> void:
  xp += collected
  if collected > 0:
   tone(960, 0.055)
- city.update_chunks(distance, rider.anchor, rider.twin_anchors)
+ city.update_chunks(distance, rider.anchor)
  if rider.position.z < -2048:
   city.rebase(2048)
   rider.position.z += 2048
   camera.position.z += 2048
  update_camera_goal(delta)
  update_targets()
- if not training and xp >= Rules.xp_required(level) and phase == "playing":
-  open_upgrades()
+ if not training:
+  while xp >= Rules.xp_required(level):
+   xp -= Rules.xp_required(level)
+   level += 1
+   pending_upgrades += 1
  notice_left = maxf(0, notice_left - delta)
 
 func _process(delta: float) -> void:
@@ -274,8 +274,6 @@ func update_camera_goal(delta: float) -> void:
 func process_mouse_commands() -> void:
  if pending_jump:
   rider.jump()
- if pending_launch:
-  rider.launch()
  for command in pending_mouse:
   if command.pressed:
    var selection: Dictionary = city.manual_target(rider.position, command.origin, command.direction, rider.reach(), rider.get_rid())
@@ -283,19 +281,16 @@ func process_mouse_commands() -> void:
   else:
    rider.release_side(command.side)
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
 
 func update_targets() -> void:
  aim_preview = city.manual_target(rider.position, camera.project_ray_origin(aim_screen), camera.project_ray_normal(aim_screen), rider.reach(), rider.get_rid())
- launch_available = rider.launch_cooldown <= 0 and city.launch_targets(rider.position, rider.reach(), rider.get_rid()).size() == 2
 
 func open_settings() -> void:
  if phase not in ["menu", "paused"]:
   return
  settings_return = phase
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
  phase = "settings"
  hud.rebuild_buttons()
@@ -305,15 +300,7 @@ func close_settings() -> void:
   return
  phase = settings_return
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
- hud.rebuild_buttons()
-
-func set_route(route: String) -> void:
- if not Rules.ROUTES.has(route):
-  return
- preferences.route = route
- save_preferences()
  hud.rebuild_buttons()
 
 func set_language(language: String) -> void:
@@ -321,7 +308,6 @@ func set_language(language: String) -> void:
   return
  preferences.language = language
  locale.language = language
- city.refresh_language()
  save_preferences()
  hud.rebuild_buttons()
 
@@ -356,11 +342,10 @@ func capture() -> void:
  get_tree().quit()
 
 func gameplay_released() -> bool:
- return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_E) and not Input.is_physical_key_pressed(KEY_A) and not Input.is_physical_key_pressed(KEY_D)
+ return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_A) and not Input.is_physical_key_pressed(KEY_D)
 
 func resume() -> void:
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
  rider.release_wire()
  phase = "countdown"
@@ -370,13 +355,14 @@ func resume() -> void:
 
 func return_menu() -> void:
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
  phase = "menu"
  create_world(false)
  hud.rebuild_buttons()
 
 func open_upgrades() -> void:
+ if pending_upgrades <= 0:
+  return
  choices.clear()
  var pool: Array[String] = []
  for key in Rules.UPGRADES:
@@ -386,7 +372,7 @@ func open_upgrades() -> void:
    continue
   if rider.tiers[key] < 3:
    pool.append(key)
- if level == 1 and "skates" in pool:
+ if upgrades_taken == 0 and "skates" in pool:
   choices.append("skates")
   pool.erase("skates")
  while choices.size() < 3 and not pool.is_empty():
@@ -394,11 +380,13 @@ func open_upgrades() -> void:
   choices.append(pool[i])
   pool.remove_at(i)
  if choices.is_empty():
-  # All abilities maxed: keep XP as a result statistic; do not open an empty modal.
+  # All abilities maxed: consume the pending upgrade without an empty modal.
+  pending_upgrades -= 1
+  upgrades_taken += 1
+  open_upgrades()
   return
  phase = "upgrade"
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
  hud.rebuild_buttons()
  tone(620, 0.13)
@@ -406,18 +394,20 @@ func open_upgrades() -> void:
 func choose(index: int) -> void:
  if phase != "upgrade" or index < 0 or index >= choices.size():
   return
- xp -= Rules.xp_required(level)
- level += 1
  rider.upgrade(choices[index])
- resume()
+ pending_upgrades = maxi(0, pending_upgrades - 1)
+ upgrades_taken += 1
+ if pending_upgrades > 0:
+  open_upgrades()
+ else:
+  resume()
 
 func end_run(reason: String) -> void:
  phase = "dead"
  pending_mouse.clear()
- pending_launch = false
  pending_jump = false
  death_reason = reason
- if not training and city.route == "standard" and distance > best:
+ if not training and distance > best:
   best = distance
   if save_enabled:
    var save := ConfigFile.new()

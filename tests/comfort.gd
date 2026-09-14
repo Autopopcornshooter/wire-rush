@@ -13,7 +13,6 @@ func check(ok: bool, description: String) -> void:
   failures += 1
   push_error("FAIL " + description)
 func fixture() -> void:
- game.preferences.route = "standard"
  game.start_run(true)
  game.rider.practice = false
  await physics_frame
@@ -92,6 +91,7 @@ func run() -> void:
  await fixture()
  game.rider.upgrade("armor")
  var armor_offered: bool = false
+ game.pending_upgrades = 1
  for seed_value in range(40):
   game.phase = "playing"
   game.rng.seed = seed_value
@@ -101,9 +101,11 @@ func run() -> void:
  for perk in game.rider.tiers:
   game.rider.tiers[perk] = 3
  game.phase = "playing"
+ game.pending_upgrades = 1
  game.open_upgrades()
- check(game.choices.is_empty() and game.phase == "playing", "fully upgraded held armor does not force an empty choice screen")
+ check(game.choices.is_empty() and game.phase == "playing" and game.pending_upgrades == 0, "fully upgraded held armor does not force an empty choice screen")
  game.rider.armor_charges = 0
+ game.pending_upgrades = 1
  game.open_upgrades()
  check(game.choices == ["armor"], "empty armor can be replenished even at its maximum tier")
  game.choose(0)
@@ -128,7 +130,7 @@ func run() -> void:
   await physics_frame
   game._physics_process(1.0 / 60)
  check(game.phase == "playing" and is_instance_valid(game.rider.anchor), "countdown finishes on schedule and fires the buffered wire")
- check(game.rider.invincible > 1.9, "resume protection starts only when play resumes")
+ check(game.rider.invincible == 0, "resuming from pause grants no invincibility")
  mouse(false, pixel)
  game.process_mouse_commands()
  await fixture()

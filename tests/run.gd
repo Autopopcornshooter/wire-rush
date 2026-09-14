@@ -56,7 +56,8 @@ func run() -> void:
  game.set_process(false)
  await fixture()
  check(Rules.progress(80, -40, 0) == 80 and Rules.progress(80, -90, 0) == 90, "distance rewards only new forward travel")
- check(Rules.UPGRADES.has("launcher") and game.rider.has_method("launch"), "two-wire launch and its speed upgrade are restored")
+ check(not Rules.UPGRADES.has("launcher") and not game.rider.has_method("launch"), "twin launch is removed")
+ check(game.rider.has_method("jump") and Rules.DOUBLE_JUMP_COOLDOWN.size() == 3, "double jump replaces twin launch as the air ability")
  check(not game.city.has_method("find_anchor") and not game.city.has_method("add_anchor"), "automatic anchor network is removed")
  check((game.camera.position - game.rider.position).is_equal_approx(Vector3(0, 4.5, 12)), "distant camera stays restored")
  check(shoot(18), "manual wall shot succeeds")
@@ -160,15 +161,16 @@ func run() -> void:
   await hook(4)
   game.rider.tiers.skates = tier
   await touchdown()
+  check(game.rider.mode == "slide" and game.rider.slide_left > Rules.SLIDE_SECONDS[tier] - 0.2, "tier %d starts close to its full slide duration" % tier)
   var before: float = Vector2(game.rider.velocity.x, game.rider.velocity.z).length()
-  await frames(60)
-  var after: float = Vector2(game.rider.velocity.x, game.rider.velocity.z).length()
-  speeds.append(after)
-  check(absf(before - after - Rules.SKATE_FRICTION[tier] * Rules.GRAVITY) < 0.1, "tier %d loses speed from friction over one second" % tier)
-  check(after > 0 and after < before, "tier %d decelerates naturally" % tier)
-  await frames(400)
-  check(game.rider.mode == "ground" and game.rider.velocity.length() < 0.1, "tier %d eventually stops without a duration timer" % tier)
- check(speeds[0] < speeds[1] and speeds[1] < speeds[2], "higher skates tiers retain more speed through lower friction")
+  await frames(30)
+  var mid: float = Vector2(game.rider.velocity.x, game.rider.velocity.z).length()
+  speeds.append(mid)
+  check(is_equal_approx(mid, before), "tier %d keeps landing speed while the slide is active" % tier)
+  check(game.rider.mode == "slide" and game.rider.slide_left > 0, "tier %d slide is still active mid-duration" % tier)
+  await frames(int(Rules.SLIDE_SECONDS[tier] * 60) + 10)
+  check(game.rider.mode == "ground" and game.rider.velocity.length() < 0.1, "tier %d slide stops once its timed duration elapses" % tier)
+ check(speeds[0] == speeds[1] and speeds[1] == speeds[2], "slide speed is unaffected by the skate tier; only duration changes")
 
  await fixture()
  await hook(4)
@@ -202,12 +204,13 @@ func run() -> void:
  check(game.rider.mode == "air" and game.rider.armor_charges == 0 and game.rider.invincible > 0, "armor still absorbs an obstacle collision")
  game.rider.hurt("OBSTACLE COLLISION")
  check(game.rider.mode != "dead", "obstacle protection still covers a collision cluster")
+ game.rider.invincible = 0
  game.phase = "paused"
  game.resume()
  game.countdown = 0
  game.countdown_started = true
  game._physics_process(1.0 / 60)
- check(game.phase == "playing" and game.rider.invincible > 1.9, "resume protection starts when simulation resumes")
+ check(game.phase == "playing" and game.rider.invincible == 0, "resuming from pause grants no invincibility")
 
  await fixture()
  game.city.practice = false
@@ -278,13 +281,37 @@ func run() -> void:
 
  await fixture()
  game.xp = 250
+ while game.xp >= Rules.xp_required(game.level):
+  game.xp -= Rules.xp_required(game.level)
+  game.level += 1
+  game.pending_upgrades += 1
+ check(game.level == 2 and game.xp == 70 and game.pending_upgrades == 1 and game.phase == "playing", "leveling up queues an upgrade instead of pausing immediately")
  game.open_upgrades()
  check(game.phase == "upgrade" and game.choices.all(func(key: String): return Rules.UPGRADES.has(key)), "upgrade cards contain supported abilities")
  var frozen: Vector3 = game.rider.position
  game._physics_process(0.5)
  check(game.rider.position == frozen, "upgrade selection freezes simulation")
  game.choose(0)
- check(game.level == 2 and game.xp == 70 and game.phase == "countdown", "upgrade selection carries XP and gates resume")
+ check(game.level == 2 and game.xp == 70 and game.pending_upgrades == 0 and game.phase == "countdown", "upgrade selection carries XP and gates resume")
+
+ await fixture()
+ game.pending_upgrades = 2
+ game.upgrades_taken = 0
+ game.open_upgrades()
+ check(game.phase == "upgrade" and game.pending_upgrades == 2, "pressing G opens the first of several stacked upgrades")
+ game.choose(0)
+ check(game.phase == "upgrade" and game.pending_upgrades == 1, "choosing one stacked upgrade immediately opens the next instead of resuming")
+ game.choose(0)
+ check(game.pending_upgrades == 0 and game.phase == "countdown", "the last stacked upgrade resumes play")
+
+ await fixture()
+ for perk in game.rider.tiers:
+  game.rider.tiers[perk] = 3
+ game.rider.armor_charges = 3
+ game.pending_upgrades = 2
+ game.upgrades_taken = 0
+ game.open_upgrades()
+ check(game.pending_upgrades == 0 and game.phase == "playing", "fully maxed perks silently consume queued upgrades without opening a modal")
  print("RESULT ", checks - failures, "/", checks, " passed; failures=", failures)
  game.free()
  await process_frame
