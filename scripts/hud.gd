@@ -1,5 +1,6 @@
 extends Control
 const Rules = preload("res://scripts/rules.gd")
+const UpgradeCard = preload("res://scripts/upgrade_card.gd")
 var game: Node3D
 var font: Font = preload("res://assets/fonts/ui_font.tres")
 var buttons: Array[Button] = []
@@ -7,6 +8,13 @@ var cyan := Color("76efdc")
 var muted := Color("90a7bc")
 var white := Color("ecf3f5")
 var gold := Color("ffc876")
+## Ability icons: derived from game-icons.net (Delapouite, CC BY 3.0) — see THIRD_PARTY_NOTICES.md.
+var icon_skate: Texture2D = preload("res://assets/icons/skate.svg")
+var icon_shield: Texture2D = preload("res://assets/icons/shield.svg")
+var icon_city: Texture2D = preload("res://assets/icons/city.svg")
+var icon_hook: Texture2D = preload("res://assets/icons/hook.svg")
+var icon_reel: Texture2D = preload("res://assets/icons/reel.svg")
+var icon_jump: Texture2D = preload("res://assets/icons/jump.svg")
 var last_pending_upgrades: int = -1
 var levelup_trigger_time: float = -10.0
 const LEVELUP_POPUP_DURATION: float = 1.0
@@ -14,6 +22,29 @@ const LEVELUP_POPUP_FADE_IN: float = 0.15
 const LEVELUP_POPUP_HOLD_END: float = 0.75
 const UPGRADE_BUMP_DURATION: float = 0.35
 const XP_FLASH_DURATION: float = 0.5
+const PAUSE_PADDING: float = 26.0
+const PAUSE_BUTTON_W: float = 300.0
+const PAUSE_BUTTON_H: float = 46.0
+const PAUSE_BUTTON_GAP: float = 12.0
+const PAUSE_TITLE_H: float = 54.0
+const PAUSE_COL_GAP: float = 28.0
+const PAUSE_RIGHT_W: float = 190.0
+const PAUSE_KEY_ROW_H: float = 22.0
+const PAUSE_KEY_PAD: float = 12.0
+const PAUSE_KEY_BADGE_W: float = 64.0
+const PAUSE_ICON_SIZE: float = 28.0
+const PAUSE_DOT_H: float = 12.0
+const PAUSE_ICON_ROW_GAP: float = 8.0
+const PAUSE_ICON_PAD: float = 12.0
+const PAUSE_SECTION_GAP: float = 16.0
+const PAUSE_KEY_ROWS: Array = [
+ ["LMB/RMB", "HOOK + REEL"],
+ ["SPACE", "JUMP"],
+ ["G", "UPGRADES"],
+ ["A/D", "STEER"],
+ ["ESC", "PAUSE"],
+ ["R", "RESTART"],
+]
 
 func _ready() -> void:
  set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -63,9 +94,10 @@ func rebuild_buttons() -> void:
   add_button("RUN AGAIN   /   R", Rect2(440, 461, 400, 54), func(): game.start_run(game.training))
   add_button("MAIN MENU", Rect2(440, 529, 400, 46), game.return_menu)
  elif game.phase == "paused":
-  add_button("Resume", Rect2(440, 358, 400, 54), game.resume)
-  add_button("SETTINGS", Rect2(440, 428, 400, 48), game.open_settings)
-  add_button("MAIN MENU", Rect2(440, 496, 400, 48), game.return_menu)
+  var layout: Dictionary = pause_layout()
+  add_button("Resume", Rect2(layout.button_x, layout.button_y, layout.button_w, layout.button_h), game.resume)
+  add_button("SETTINGS", Rect2(layout.button_x, layout.button_y + layout.button_h + layout.button_gap, layout.button_w, layout.button_h), game.open_settings)
+  add_button("MAIN MENU", Rect2(layout.button_x, layout.button_y + (layout.button_h + layout.button_gap) * 2, layout.button_w, layout.button_h), game.return_menu)
  elif game.phase == "settings":
   add_button("한국어", Rect2(590, 155, 150, 46), func(): game.set_language("ko"), game.preferences.language == "ko")
   add_button("English", Rect2(755, 155, 150, 46), func(): game.set_language("en"), game.preferences.language == "en")
@@ -73,9 +105,50 @@ func rebuild_buttons() -> void:
  elif game.phase == "upgrade":
   for i in range(game.choices.size()):
    var slot: int = i
-   var key: String = game.choices[i]
-   var tier: int = game.rider.tiers[key]
-   add_button("%d   /   %s   %d > %d" % [i + 1, t(Rules.UPGRADES[key][0]), tier, mini(3, tier + 1)], Rect2(124 + i * 350, 408, 332, 72), func(): game.choose(slot))
+   var card := UpgradeCard.new()
+   card.hud = self
+   card.key = game.choices[i]
+   card.position = Vector2(upgrade_card_x(i), 150)
+   card.size = Vector2(320, 340)
+   card.pressed.connect(func(): game.choose(slot))
+   add_child(card)
+   buttons.append(card)
+
+func upgrade_card_x(index: int) -> float:
+ return 140 + index * 340
+
+func pause_layout() -> Dictionary:
+ var owned: Array = []
+ for key in Rules.UPGRADES.keys():
+  if game.rider.tiers[key] > 0:
+   owned.append(key)
+ var key_box_h: float = PAUSE_KEY_PAD * 2 + PAUSE_KEY_ROWS.size() * PAUSE_KEY_ROW_H
+ var icon_list_h: float = 0.0
+ if owned.size() > 0:
+  icon_list_h = PAUSE_ICON_PAD * 2 + owned.size() * (PAUSE_ICON_SIZE + PAUSE_DOT_H + PAUSE_ICON_ROW_GAP) - PAUSE_ICON_ROW_GAP
+ var right_h: float = key_box_h + (PAUSE_SECTION_GAP + icon_list_h if owned.size() > 0 else 0.0)
+ var left_h: float = PAUSE_TITLE_H + 3 * PAUSE_BUTTON_H + 2 * PAUSE_BUTTON_GAP
+ var content_h: float = maxf(left_h, right_h)
+ var panel_w: float = PAUSE_PADDING * 2 + PAUSE_BUTTON_W + PAUSE_COL_GAP + PAUSE_RIGHT_W
+ var panel_h: float = PAUSE_PADDING * 2 + content_h
+ var panel_x: float = (1280 - panel_w) * 0.5
+ var panel_y: float = (720 - panel_h) * 0.5
+ var left_x: float = panel_x + PAUSE_PADDING
+ var content_top: float = panel_y + PAUSE_PADDING
+ var right_x: float = left_x + PAUSE_BUTTON_W + PAUSE_COL_GAP
+ var right_y: float = content_top + (content_h - right_h)
+ return {
+  "panel": Rect2(panel_x, panel_y, panel_w, panel_h),
+  "title_center": Vector2(left_x + PAUSE_BUTTON_W * 0.5, content_top + 30),
+  "button_x": left_x,
+  "button_y": content_top + PAUSE_TITLE_H,
+  "button_w": PAUSE_BUTTON_W,
+  "button_h": PAUSE_BUTTON_H,
+  "button_gap": PAUSE_BUTTON_GAP,
+  "key_box": Rect2(right_x, right_y, PAUSE_RIGHT_W, key_box_h),
+  "icon_list": Rect2(right_x, right_y + key_box_h + PAUSE_SECTION_GAP, PAUSE_RIGHT_W, icon_list_h),
+  "owned": owned,
+ }
 
 func add_button(text: String, rect: Rect2, action: Callable, selected: bool = false) -> void:
  var button := Button.new()
@@ -143,9 +216,10 @@ func _draw() -> void:
    var locked: Vector2 = game.camera.unproject_position(game.rider.anchor.global_position)
    draw_circle(locked, 5, cyan)
    draw_arc(locked, 10, 0, TAU, 24, cyan, 2, true)
+  if game.rider.tiers.double_jump > 0:
+   draw_double_jump_indicator()
   if game.rider.mode == "slide":
-   panel(Rect2(24, 304, 310, 54))
-   label_at(Vector2(42, 339), t("SLIDE %.1fs LEFT / %.1f m/s") % [game.rider.slide_left, Vector2(game.rider.velocity.x, game.rider.velocity.z).length()], 20, cyan, 274)
+   draw_slide_indicator()
  label_at(Vector2(16, 693), t("LV %02d   /   %d XP") % [game.level, game.xp], 14, white, 260)
  draw_upgrade_badge(now)
  draw_xp_bar(now)
@@ -153,10 +227,11 @@ func _draw() -> void:
  if game.phase in ["paused", "dead", "upgrade", "countdown"]:
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
  if game.phase == "paused":
-  panel(Rect2(340, 150, 600, 410))
-  label_centered(640, 195, "PAUSED", 34, cyan)
-  label_centered(640, 250, "LMB/RMB hook + reel   /   SPACE jump   /   G upgrades", 14, muted)
-  label_centered(640, 276, "A/D steer   /   ESC pause   /   R restart", 14, muted)
+  var layout: Dictionary = pause_layout()
+  panel(layout.panel)
+  label_centered(layout.title_center.x, layout.title_center.y, "PAUSED", 28, cyan)
+  draw_pause_key_box(layout.key_box)
+  draw_pause_upgrade_list(layout.icon_list, layout.owned)
  elif game.phase == "dead":
   panel(Rect2(382, 155, 516, 460))
   label_at(Vector2(437, 211), "RESULT", 30, cyan)
@@ -165,25 +240,71 @@ func _draw() -> void:
   label_at(Vector2(440, 397), t("Skate landings  %d   /   Level  %d") % [game.rider.slides, game.level], 19, white, 400)
   label_at(Vector2(440, 430), t("Skates %d / Armor %d / Buildings %d") % [game.rider.tiers.skates, game.rider.tiers.armor, game.rider.tiers.high], 16, muted, 400)
  elif game.phase == "upgrade":
-  label_at(Vector2(440, 207), "CHOOSE YOUR NEXT EDGE", 30, cyan)
-  var remaining_text: String = t(" / %d MORE QUEUED") % (game.pending_upgrades - 1) if game.pending_upgrades > 1 else ""
-  label_at(Vector2(440, 247), t("Level %d  /  physics and timers are paused") % game.level + remaining_text, 18, muted)
-  for i in range(game.choices.size()):
-   panel(Rect2(124 + i * 350, 282, 332, 215))
-   var key: String = game.choices[i]
-   var words: PackedStringArray = t(Rules.UPGRADES[key][1]).split(" ")
-   var line: String = ""
-   var y: float = 320
-   for word in words:
-    if font.get_string_size(line + word, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x > 292:
-     label_at(Vector2(142 + i * 350, y), line, 16, muted)
-     y += 25
-     line = ""
-    line += word + " "
-   label_at(Vector2(142 + i * 350, y), line, 16, muted)
+  label_centered(640, 115, "CHOOSE YOUR NEXT EDGE", 30, cyan)
  elif game.phase == "countdown":
   label_at(Vector2(460, 325), t("READY  /  %d") % game.countdown_number() if game.countdown_started else t("RELEASE CONTROLS"), 48, cyan)
   label_at(Vector2(460, 370), "Aim now; held wire input fires when the countdown ends." if game.countdown_started else "Release all gameplay buttons to continue", 18, muted, 700)
+
+func draw_double_jump_indicator() -> void:
+ # Anchored near the character's lower right leg so it reads as gear on the
+ # player rather than a floating screen widget.
+ var world_point: Vector3 = game.rider.visuals.global_transform * Vector3(0.5, -0.6, 0.1)
+ if game.camera.is_position_behind(world_point):
+  return
+ var screen_point: Vector2 = game.camera.unproject_position(world_point)
+ var max_cooldown: float = Rules.DOUBLE_JUMP_COOLDOWN[game.rider.tiers.double_jump - 1]
+ var ready: bool = game.rider.double_jump_left <= 0
+ var fill_fraction: float = 1.0 if ready else clampf(game.rider.double_jump_left / max_cooldown, 0, 1)
+ var fill_color: Color = Color("6cf17a") if ready else gold
+ draw_arc(screen_point, 10, 0, TAU, 20, Color(muted, 0.35), 3, true)
+ draw_arc(screen_point, 10, -PI * 0.5, -PI * 0.5 + TAU * fill_fraction, 20, fill_color, 3, true)
+
+func draw_slide_indicator() -> void:
+ # A vertical fuel-gauge bar beside the character's left hip, draining as the
+ # timed slide runs out — replaces the old floating "Xs left / Y m/s" panel.
+ var world_point: Vector3 = game.rider.visuals.global_transform * Vector3(-0.55, 0.15, 0.1)
+ if game.camera.is_position_behind(world_point):
+  return
+ var screen_point: Vector2 = game.camera.unproject_position(world_point)
+ var max_duration: float = Rules.SLIDE_SECONDS[game.rider.tiers.skates]
+ var fraction: float = clampf(game.rider.slide_left / max_duration, 0, 1) if max_duration > 0 else 0.0
+ var bar_size := Vector2(8, 40)
+ var top_left: Vector2 = screen_point - bar_size * 0.5
+ draw_rect(Rect2(top_left, bar_size), Color(muted, 0.35))
+ var fill_h: float = bar_size.y * fraction
+ draw_rect(Rect2(top_left + Vector2(0, bar_size.y - fill_h), Vector2(bar_size.x, fill_h)), cyan)
+
+func draw_pause_key_box(rect: Rect2) -> void:
+ draw_style_box(style(Color(0.06, 0.1, 0.15, 0.85)), rect)
+ var y: float = rect.position.y + PAUSE_KEY_PAD
+ for row in PAUSE_KEY_ROWS:
+  var key_label: String = row[0]
+  var badge: Rect2 = Rect2(rect.position.x + 10, y, PAUSE_KEY_BADGE_W, 18)
+  draw_style_box(style(Color(0.12, 0.2, 0.27, 0.95)), badge)
+  var key_w: float = font.get_string_size(key_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+  draw_string(font, Vector2(badge.position.x + badge.size.x * 0.5 - key_w * 0.5, y + 13), key_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, white)
+  label_at(Vector2(badge.position.x + PAUSE_KEY_BADGE_W + 8, y + 13), row[1], 11, muted)
+  y += PAUSE_KEY_ROW_H
+
+func draw_pause_upgrade_list(rect: Rect2, owned: Array) -> void:
+ if owned.is_empty():
+  return
+ draw_style_box(style(Color(0.06, 0.1, 0.15, 0.85)), rect)
+ var icon_map: Dictionary = {
+  "skates": icon_skate, "armor": icon_shield, "high": icon_city, "range": icon_hook,
+  "reel": icon_reel, "hook": icon_hook, "jump": icon_jump, "double_jump": icon_jump,
+ }
+ var cx: float = rect.position.x + rect.size.x * 0.5
+ var y: float = rect.position.y + PAUSE_ICON_PAD
+ for key in owned:
+  var tex: Texture2D = icon_map[key]
+  draw_texture_rect(tex, Rect2(cx - PAUSE_ICON_SIZE * 0.5, y, PAUSE_ICON_SIZE, PAUSE_ICON_SIZE), false, cyan)
+  var tier: int = game.rider.tiers[key]
+  var dot_gap: float = 10.0
+  var start_x: float = cx - (tier - 1) * dot_gap * 0.5
+  for i in range(tier):
+   draw_circle(Vector2(start_x + i * dot_gap, y + PAUSE_ICON_SIZE + 7), 2.5, cyan)
+  y += PAUSE_ICON_SIZE + PAUSE_DOT_H + PAUSE_ICON_ROW_GAP
 
 func draw_upgrade_badge(now: float) -> void:
  if game.pending_upgrades <= 0:

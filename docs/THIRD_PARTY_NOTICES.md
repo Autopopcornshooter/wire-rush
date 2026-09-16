@@ -27,7 +27,13 @@ Godot license and third-party library notices: https://godotengine.org/license/
 Complete third-party notices for the engine: https://github.com/godotengine/godot/blob/master/COPYRIGHT.txt
 
 The game's geometry, UI layout and synthesized sound effects are authored in
-this repository. No Kenney/Quaternius asset is bundled in this prototype.
+this repository.
+
+Ability icons in assets/icons/ are derived from game-icons.net by Delapouite
+(https://delapouite.com) under CC BY 3.0 (http://creativecommons.org/licenses/by/3.0/):
+"Roller skate", "Checked Shield", "Modern city", "Hook", "Film spool",
+"Jump across". Recolored; no other modification. No Kenney/Quaternius asset
+is bundled in this prototype.
 The original planning document mentions possible future art assets only.
 
 Noto Sans KR is bundled for Korean and English text. Copyright 2014-2021

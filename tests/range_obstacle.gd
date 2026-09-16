@@ -93,7 +93,7 @@ func run() -> void:
  await physics_frame
  check(game.city.wire_path_blocked(game.rider.position, attached.global_position, game.rider.get_rid()), "regression fixture crosses the attached obstacle body")
  await frames(15)
- check(game.rider.anchor == attached and game.rider.hook_connected and game.rider.blocked_time == 0, "swinging behind the attached obstacle no longer disconnects")
+ check(game.rider.anchor == attached and game.rider.hook_connected, "swinging behind the attached obstacle no longer disconnects")
  await frames(45)
  check(game.rider.anchor == attached and game.rider.hook_connected, "aerial swing continues beyond the old disconnect timeout")
  game.rider.upgrade("high")
@@ -104,8 +104,9 @@ func run() -> void:
  game.rider.rope_length = 20
  var blocker: Node3D = game.city.box(game.city.chunks[0], (game.rider.position + attached.global_position) * 0.5, Vector3(4, 5, 0.4), Color.RED, true)
  await physics_frame
+ check(game.city.wire_path_blocked(game.rider.position, attached.global_position, game.rider.get_rid()), "a separate obstacle blocks line of sight to the anchor")
  await frames(15)
- check(not is_instance_valid(game.rider.anchor) and game.message.contains("WIRE BLOCKED"), "a different obstacle still disconnects a blocked wire")
+ check(game.rider.anchor == attached and game.rider.hook_connected, "wire path occlusion no longer disconnects the wire")
  blocker.free()
  await fixture()
  hazard = await attach_obstacle()

@@ -11,7 +11,6 @@ var rope_length: float = 0
 var hook_left: float = 0
 var hook_duration: float = 0
 var hook_connected: bool = false
-var blocked_time: float = 0
 var last_release_height: float = 0
 var fresh_landing_hook: bool = false
 var jump_exempt: bool = false
@@ -113,7 +112,6 @@ func release_wire() -> void:
  wire_side = 0
  hook_left = 0
  hook_connected = false
- blocked_time = 0
  if mode == "swing":
   mode = "air"
  # Only detaching a connected wire records player height. Empty/in-flight releases
@@ -186,16 +184,7 @@ func integrate(dt: float, steer: float) -> void:
  velocity.y -= Rules.GRAVITY * dt
  if is_instance_valid(anchor):
   hook_left -= dt
-  var surface: Node3D = anchor.get_parent() if hook_connected else null
-  var blocked: bool = invincible <= 0 and city.wire_path_blocked(global_position, anchor.global_position, get_rid(), surface)
-  if blocked:
-   blocked_time += dt
-   if blocked_time > 0.12:
-    notice.emit("WIRE BLOCKED — disconnected")
-    release_wire()
-  else:
-   blocked_time = 0
-  if is_instance_valid(anchor) and hook_left <= 0 and not blocked:
+  if hook_left <= 0:
    if not hook_connected:
     hook_connected = true
     rope_length = global_position.distance_to(anchor.global_position)
