@@ -1,9 +1,11 @@
 extends Control
 const Rules = preload("res://scripts/rules.gd")
 const UpgradeCard = preload("res://scripts/upgrade_card.gd")
+const Preferences = preload("res://scripts/preferences.gd")
 var game: Node3D
 var font: Font = preload("res://assets/fonts/ui_font.tres")
 var buttons: Array[Button] = []
+var sliders: Array[Slider] = []
 var cyan := Color("76efdc")
 var muted := Color("90a7bc")
 var white := Color("ecf3f5")
@@ -85,6 +87,9 @@ func rebuild_buttons() -> void:
   button.disabled = true
   button.queue_free()
  buttons.clear()
+ for slider in sliders:
+  slider.queue_free()
+ sliders.clear()
  if game.phase == "menu":
   add_button("Start Run", Rect2(76, 429, 340, 54), func(): game.start_run(false))
   add_button("Practice", Rect2(76, 496, 340, 54), func(): game.start_run(true))
@@ -99,9 +104,16 @@ func rebuild_buttons() -> void:
   add_button("SETTINGS", Rect2(layout.button_x, layout.button_y + layout.button_h + layout.button_gap, layout.button_w, layout.button_h), game.open_settings)
   add_button("MAIN MENU", Rect2(layout.button_x, layout.button_y + (layout.button_h + layout.button_gap) * 2, layout.button_w, layout.button_h), game.return_menu)
  elif game.phase == "settings":
-  add_button("한국어", Rect2(590, 155, 150, 46), func(): game.set_language("ko"), game.preferences.language == "ko")
-  add_button("English", Rect2(755, 155, 150, 46), func(): game.set_language("en"), game.preferences.language == "en")
-  add_button("BACK   /   ESC", Rect2(520, 340, 240, 46), game.close_settings)
+  add_button("한국어", Rect2(500, 253, 150, 40), func(): game.set_language("ko"), game.preferences.language == "ko")
+  add_button("English", Rect2(665, 253, 150, 40), func(): game.set_language("en"), game.preferences.language == "en")
+  for i in range(Preferences.WINDOW_PRESETS.size()):
+   var size: Vector2i = Preferences.WINDOW_PRESETS[i]
+   var selected: bool = not game.preferences.fullscreen and game.preferences.window_size == size
+   add_button("%d×%d" % [size.x, size.y], Rect2(500 + i * 130, 311, 120, 40), func(): game.set_window_size(size), selected)
+  add_button("WINDOWED", Rect2(500, 369, 175, 40), func(): game.set_fullscreen(false), not game.preferences.fullscreen)
+  add_button("FULLSCREEN", Rect2(690, 369, 175, 40), func(): game.set_fullscreen(true), game.preferences.fullscreen)
+  add_sfx_slider()
+  add_button("BACK   /   ESC", Rect2(520, 477, 240, 46), game.close_settings)
  elif game.phase == "upgrade":
   for i in range(game.choices.size()):
    var slot: int = i
@@ -166,6 +178,19 @@ func add_button(text: String, rect: Rect2, action: Callable, selected: bool = fa
  add_child(button)
  buttons.append(button)
 
+func add_sfx_slider() -> void:
+ var slider := HSlider.new()
+ slider.position = Vector2(500, 427)
+ slider.size = Vector2(330, 24)
+ slider.min_value = 0
+ slider.max_value = 100
+ slider.step = 1
+ slider.value = roundi(game.preferences.sfx_volume * 100)
+ slider.focus_mode = Control.FOCUS_NONE
+ slider.value_changed.connect(func(value: float): game.set_sfx_volume(value / 100.0))
+ add_child(slider)
+ sliders.append(slider)
+
 func _draw() -> void:
  if game == null:
   return
@@ -178,10 +203,15 @@ func _draw() -> void:
  last_pending_upgrades = game.pending_upgrades
  if game.phase == "settings":
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
-  panel(Rect2(310, 72, 660, 300))
-  label_at(Vector2(350, 125), "SETTINGS", 30, cyan)
-  label_at(Vector2(350, 187), "LANGUAGE", 20)
-  label_at(Vector2(350, 300), "Settings could not be saved. They apply for this session." if game.settings_error else "Language is saved automatically.", 14, muted, 580)
+  panel(Rect2(290, 157, 700, 406))
+  label_at(Vector2(330, 205), "SETTINGS", 30, cyan)
+  label_at(Vector2(330, 282), "LANGUAGE", 18)
+  label_at(Vector2(330, 340), "RESOLUTION", 18)
+  label_at(Vector2(330, 398), "DISPLAY MODE", 18)
+  label_at(Vector2(330, 448), "SFX VOLUME", 18)
+  label_at(Vector2(845, 448), "%d%%" % roundi(game.preferences.sfx_volume * 100), 14, muted)
+  if game.settings_error:
+   label_at(Vector2(330, 549), "Settings could not be saved. They apply for this session.", 14, muted, 580)
   return
  if game.phase == "menu":
   panel(Rect2(42, 62, 420, 584))

@@ -34,17 +34,21 @@ func mouse(button: int, pressed: bool, point: Vector3) -> void:
 func run() -> void:
  var preferences = Preferences.new()
  preferences.language = "en"
+ preferences.window_size = Vector2i(1920, 1080)
+ preferences.fullscreen = true
+ preferences.sfx_volume = 0.4
 
  var temporary: String = "user://settings-test-%d.cfg" % OS.get_process_id()
  check(preferences.save_file(temporary) == OK, "settings save to a separate configuration file")
  var loaded = Preferences.new()
- check(loaded.load_file(temporary) == OK and loaded.language == "en", "language survives a fresh settings instance")
+ check(loaded.load_file(temporary) == OK and loaded.language == "en" and loaded.window_size == Vector2i(1920, 1080) and loaded.fullscreen and absf(loaded.sfx_volume - 0.4) < 0.001, "display and audio preferences survive a fresh settings instance")
  var corrupt := ConfigFile.new()
  corrupt.set_value("interface", "language", "invalid")
  corrupt.set_value("controls", "aim_mode", "invalid")
+ corrupt.set_value("display", "window_size", Vector2i(999, 999))
  corrupt.save(temporary)
  loaded.load_file(temporary)
- check(loaded.language == "ko", "invalid saved options fall back to supported values")
+ check(loaded.language == "ko" and loaded.window_size == Vector2i(1280, 720), "invalid saved options fall back to supported values")
  DirAccess.remove_absolute(temporary)
  var locale = Locale.new()
  check(locale.FONT.has_char("한".unicode_at(0)), "bundled font contains Korean glyphs")
@@ -67,6 +71,21 @@ func run() -> void:
  game.hud.buttons[0].pressed.emit()
  check(game.hud.buttons[-1].text == "뒤로   /   ESC", "Korean selection updates settings buttons")
  check(game.locale.language == "ko" and game.city.chunks.has(0), "existing city chunks survive a language change without rebuilding physics")
+
+ var preset: Vector2i = Preferences.WINDOW_PRESETS[1]
+ game.set_window_size(preset)
+ check(game.preferences.window_size == preset and not game.preferences.fullscreen, "a resolution preset updates preferences and clears fullscreen")
+ game.set_fullscreen(true)
+ check(game.preferences.fullscreen, "fullscreen toggle updates preferences")
+ game.set_fullscreen(false)
+ check(not game.preferences.fullscreen, "windowed toggle clears fullscreen")
+ var sfx_bus: int = AudioServer.get_bus_index("SFX")
+ game.set_sfx_volume(0.5)
+ check(sfx_bus != -1 and not AudioServer.is_bus_mute(sfx_bus) and absf(AudioServer.get_bus_volume_db(sfx_bus) - linear_to_db(0.5)) < 0.01, "sfx volume slider updates the SFX audio bus")
+ game.set_sfx_volume(0.0)
+ check(AudioServer.is_bus_mute(sfx_bus), "muting sfx volume mutes the SFX bus")
+ game.set_sfx_volume(1.0)
+
  var escape := InputEventKey.new()
  escape.keycode = KEY_ESCAPE
  escape.pressed = true

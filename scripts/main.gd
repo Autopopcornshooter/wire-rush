@@ -61,9 +61,15 @@ func _ready() -> void:
  hud = Hud.new()
  hud.game = self
  layer.add_child(hud)
+ if AudioServer.get_bus_index("SFX") == -1:
+  AudioServer.add_bus()
+  AudioServer.set_bus_name(AudioServer.bus_count - 1, "SFX")
  audio = AudioStreamPlayer.new()
  audio.volume_db = -18
+ audio.bus = "SFX"
  add_child(audio)
+ apply_display_settings()
+ apply_sfx_volume()
  hud.rebuild_buttons()
  demo = "--demo" in OS.get_cmdline_user_args()
  if demo:
@@ -311,8 +317,40 @@ func set_language(language: String) -> void:
  save_preferences()
  hud.rebuild_buttons()
 
+func set_window_size(size: Vector2i) -> void:
+ preferences.window_size = size
+ preferences.fullscreen = false
+ apply_display_settings()
+ save_preferences()
+ hud.rebuild_buttons()
 
+func set_fullscreen(enabled: bool) -> void:
+ preferences.fullscreen = enabled
+ apply_display_settings()
+ save_preferences()
+ hud.rebuild_buttons()
 
+func set_sfx_volume(value: float) -> void:
+ preferences.sfx_volume = clampf(value, 0.0, 1.0)
+ apply_sfx_volume()
+ save_preferences()
+
+func apply_display_settings() -> void:
+ if DisplayServer.get_name() == "headless":
+  return
+ if preferences.fullscreen:
+  DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+ else:
+  DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+  DisplayServer.window_set_size(preferences.window_size)
+
+func apply_sfx_volume() -> void:
+ var bus_index: int = AudioServer.get_bus_index("SFX")
+ if bus_index == -1:
+  return
+ AudioServer.set_bus_mute(bus_index, preferences.sfx_volume <= 0)
+ if preferences.sfx_volume > 0:
+  AudioServer.set_bus_volume_db(bus_index, linear_to_db(preferences.sfx_volume))
 
 
 func demo_manual() -> void:
