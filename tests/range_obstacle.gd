@@ -36,8 +36,19 @@ func frames(count: int) -> void:
   await physics_frame
   game.rider.simulate(1.0 / 60, 0)
 
+func has_mesh_instance(node: Node) -> bool:
+ if node is MeshInstance3D and node.visible:
+  return true
+ for child in node.get_children():
+  if has_mesh_instance(child):
+   return true
+ return false
+
 func attach_obstacle() -> Node3D:
  var hazard: Node3D = game.city.obstacle(game.city.chunks[0], Vector3(0, 12, -10), Vector3(2.6, 2.2, 1.4))
+ check(not hazard.get_child(0).visible, "the old pink box mesh is hidden now that the drone model is the visual")
+ check(hazard.get_child(1).shape is BoxShape3D and hazard.get_child(1).shape.size == Vector3(2.6, 2.2, 1.4), "the real CollisionShape3D still sits at child(1), unchanged, for existing hookable-surface code")
+ check(has_mesh_instance(hazard), "a visible mesh (the drone model) exists on the hazard despite the box mesh being hidden")
  game.rider.position = Vector3(0, 12, 0)
  game.rider.velocity = Vector3.ZERO
  await physics_frame

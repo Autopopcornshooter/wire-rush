@@ -14,7 +14,12 @@ const BUILDING_BONUS: Array[float] = [0.0, 10.0, 20.0, 30.0]
 const ARMOR_PROTECTION: float = 2.0
 const COUNTDOWN_BEAT: float = 0.7
 const CAMERA_DAMPING: float = 5.0
-const CAMERA_OFFSET := Vector3(0, 4.5, 12.0)
+## Same direction as the original (0, 4.5, 12.0) offset, uniformly scaled
+## down to a 5.0m boom length — like shortening a SpringArm3D without
+## rotating it: the elevation angle (and therefore the follow/smoothing/
+## look-at behavior built around this vector elsewhere) is unchanged, only
+## the distance is. FOV/projection untouched.
+const CAMERA_OFFSET := Vector3(0, 1.755617, 4.681646)
 const UPGRADES: Dictionary = {
  "skates": ["ROLLER SKATES", "Keep landing speed for 2 / 3 / 4 seconds. Release at player height 5m or below to slide."],
  "armor": ["IMPACT ARMOR", "Keep moving after a hit: blink and ignore obstacles for 2s. Hidden while armor remains."],

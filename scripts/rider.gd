@@ -1,5 +1,9 @@
 extends CharacterBody3D
 const Rules = preload("res://scripts/rules.gd")
+const CharacterVisual = preload("res://scripts/character_visual.gd")
+## Swap the humanoid model here during development (see CharacterVisual.CHARACTERS).
+## Empty string keeps the original primitive-box look with zero risk to it.
+const ACTIVE_CHARACTER: String = "lowpoly_anime_character_cyberstyle"
 signal notice(message: String)
 signal crashed(reason: String)
 signal slid
@@ -33,20 +37,30 @@ func _ready() -> void:
  collision_mask = 1
  var collider := CollisionShape3D.new()
  var capsule := CapsuleShape3D.new()
+ # Sized to match the visual character's real-world ~1.7m height (see
+ # character_visual.gd's per-character scale, solved from the same
+ # head-top-to-toe-tip bone measurement). Capsule stays centered on Rider's
+ # own origin — the origin itself is untouched, only its size changed.
  capsule.radius = 0.35
- capsule.height = 1.6
+ capsule.height = 1.7
  collider.shape = capsule
  add_child(collider)
  visuals = Node3D.new()
  add_child(visuals)
- city.box(visuals, Vector3(0, 0.05, 0), Vector3(0.65, 0.75, 0.38), Color("e2e9e4"))
- city.box(visuals, Vector3(0, 0.65, -0.01), Vector3(0.48, 0.43, 0.46), Color("ffc876"))
- city.box(visuals, Vector3(0, 0.68, -0.26), Vector3(0.43, 0.13, 0.035), Color("162f42"))
- city.box(visuals, Vector3(0, 0.15, 0.25), Vector3(0.45, 0.5, 0.2), Color("42c4b5"), false, true)
- for side in [-1, 1]:
-  city.box(visuals, Vector3(side * 0.2, -0.5, 0), Vector3(0.22, 0.55, 0.23), Color("314659"))
-  city.box(visuals, Vector3(side * 0.2, -0.76, -0.07), Vector3(0.25, 0.14, 0.48), Color("67f1dc"), false, true)
-  city.box(visuals, Vector3(side * 0.45, 0.0, 0), Vector3(0.20, 0.6, 0.2), Color("b2c8c8"))
+ if ACTIVE_CHARACTER != "" and CharacterVisual.CHARACTERS.has(ACTIVE_CHARACTER):
+  var character_visual := CharacterVisual.new()
+  visuals.add_child(character_visual)
+  character_visual.setup(ACTIVE_CHARACTER)
+  character_visual.bind_rider(self)
+ else:
+  city.box(visuals, Vector3(0, 0.05, 0), Vector3(0.65, 0.75, 0.38), Color("e2e9e4"))
+  city.box(visuals, Vector3(0, 0.65, -0.01), Vector3(0.48, 0.43, 0.46), Color("ffc876"))
+  city.box(visuals, Vector3(0, 0.68, -0.26), Vector3(0.43, 0.13, 0.035), Color("162f42"))
+  city.box(visuals, Vector3(0, 0.15, 0.25), Vector3(0.45, 0.5, 0.2), Color("42c4b5"), false, true)
+  for side in [-1, 1]:
+   city.box(visuals, Vector3(side * 0.2, -0.5, 0), Vector3(0.22, 0.55, 0.23), Color("314659"))
+   city.box(visuals, Vector3(side * 0.2, -0.76, -0.07), Vector3(0.25, 0.14, 0.48), Color("67f1dc"), false, true)
+   city.box(visuals, Vector3(side * 0.45, 0.0, 0), Vector3(0.20, 0.6, 0.2), Color("b2c8c8"))
  wire_mesh = MeshInstance3D.new()
  wire_surface = ImmediateMesh.new()
  wire_mesh.mesh = wire_surface
@@ -157,8 +171,24 @@ func simulate(delta: float, steer: float) -> void:
   integrate(delta * 0.5, steer)
  high_speed = maxf(high_speed, velocity.length())
  visuals.visible = invincible <= 0 or fmod(invincible, 0.4) > 0.16
- visuals.rotation.z = lerpf(visuals.rotation.z, clampf(-velocity.x * 0.045, -0.45, 0.45), delta * 8)
- visuals.rotation.x = lerpf(visuals.rotation.x, -0.55 if mode == "slide" else 0.12, delta * 8)
+ update_visual_banking(delta)
+
+## Whole-body lean applied to `visuals` (never Rider/CollisionShape itself).
+## Split out from simulate() so it's callable/testable on its own.
+func update_visual_banking(delta: float) -> void:
+ # This pitch/roll was tuned for the old primitive-box visual, which had no
+ # real slide pose of its own — pitching the entire visuals node forward by
+ # ~31 degrees was how "sliding" was faked. The real Running Slide animation
+ # (and CharacterVisual's own yaw-only slide facing, applied a level deeper
+ # on the model itself) already portrays the slide correctly, so stacking
+ # this extra pitch/roll on top of it is what pivoted the character up off
+ # the ground and tilted it sideways.
+ if mode == "slide":
+  visuals.rotation.z = lerpf(visuals.rotation.z, 0.0, delta * 8)
+  visuals.rotation.x = lerpf(visuals.rotation.x, 0.0, delta * 8)
+ else:
+  visuals.rotation.z = lerpf(visuals.rotation.z, clampf(-velocity.x * 0.045, -0.45, 0.45), delta * 8)
+  visuals.rotation.x = lerpf(visuals.rotation.x, 0.12, delta * 8)
 
 func integrate(dt: float, steer: float) -> void:
  if mode == "dead":
@@ -311,15 +341,26 @@ func upgrade(key: String) -> void:
  elif key == "high":
   city.apply_height_level(tiers.high)
 
+## Purely cosmetic: where the drawn wire line starts. Physics (hook timing,
+## anchor distance, rope length) all still use global_position untouched —
+## this only decides what point the visible line is drawn from, so it can
+## track the character's hand instead of its physics center.
+func wire_visual_origin() -> Vector3:
+ for child in visuals.get_children():
+  if child.has_method("get_wire_grip_position"):
+   return child.get_wire_grip_position()
+ return global_position + Vector3(0, 0.3, 0)
+
 func draw_wire() -> void:
  wire_surface.clear_surfaces()
  if not is_instance_valid(anchor):
   return
+ var origin: Vector3 = wire_visual_origin()
  wire_surface.surface_begin(Mesh.PRIMITIVE_LINES)
  wire_surface.surface_set_color(Color("78f9e5"))
  var target: Vector3 = anchor.global_position
  if hook_left > 0:
-  target = global_position.lerp(target, 1 - hook_left / hook_duration)
- wire_surface.surface_add_vertex(global_position + Vector3(0, 0.3, 0))
+  target = origin.lerp(target, 1 - hook_left / hook_duration)
+ wire_surface.surface_add_vertex(origin)
  wire_surface.surface_add_vertex(target)
  wire_surface.surface_end()

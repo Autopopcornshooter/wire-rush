@@ -59,7 +59,7 @@ func run() -> void:
  check(not Rules.UPGRADES.has("launcher") and not game.rider.has_method("launch"), "twin launch is removed")
  check(game.rider.has_method("jump") and Rules.DOUBLE_JUMP_COOLDOWN.size() == 3, "double jump replaces twin launch as the air ability")
  check(not game.city.has_method("find_anchor") and not game.city.has_method("add_anchor"), "automatic anchor network is removed")
- check((game.camera.position - game.rider.position).is_equal_approx(Vector3(0, 4.5, 12)), "distant camera stays restored")
+ check((game.camera.position - game.rider.position).is_equal_approx(Rules.CAMERA_OFFSET), "distant camera stays restored")
  check(shoot(18), "manual wall shot succeeds")
  check(not game.rider.hook_connected and game.rider.last_release_height == 0, "flying hook does not change landing history early")
  await frames(25)

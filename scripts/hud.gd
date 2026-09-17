@@ -104,16 +104,18 @@ func rebuild_buttons() -> void:
   add_button("SETTINGS", Rect2(layout.button_x, layout.button_y + layout.button_h + layout.button_gap, layout.button_w, layout.button_h), game.open_settings)
   add_button("MAIN MENU", Rect2(layout.button_x, layout.button_y + (layout.button_h + layout.button_gap) * 2, layout.button_w, layout.button_h), game.return_menu)
  elif game.phase == "settings":
-  add_button("한국어", Rect2(500, 253, 150, 40), func(): game.set_language("ko"), game.preferences.language == "ko")
-  add_button("English", Rect2(665, 253, 150, 40), func(): game.set_language("en"), game.preferences.language == "en")
+  add_button("한국어", Rect2(500, 225, 150, 40), func(): game.set_language("ko"), game.preferences.language == "ko")
+  add_button("English", Rect2(665, 225, 150, 40), func(): game.set_language("en"), game.preferences.language == "en")
   for i in range(Preferences.WINDOW_PRESETS.size()):
    var size: Vector2i = Preferences.WINDOW_PRESETS[i]
    var selected: bool = not game.preferences.fullscreen and game.preferences.window_size == size
-   add_button("%d×%d" % [size.x, size.y], Rect2(500 + i * 130, 311, 120, 40), func(): game.set_window_size(size), selected)
-  add_button("WINDOWED", Rect2(500, 369, 175, 40), func(): game.set_fullscreen(false), not game.preferences.fullscreen)
-  add_button("FULLSCREEN", Rect2(690, 369, 175, 40), func(): game.set_fullscreen(true), game.preferences.fullscreen)
+   add_button("%d×%d" % [size.x, size.y], Rect2(500 + i * 130, 283, 120, 40), func(): game.set_window_size(size), selected)
+  add_button("WINDOWED", Rect2(500, 341, 175, 40), func(): game.set_fullscreen(false), not game.preferences.fullscreen)
+  add_button("FULLSCREEN", Rect2(690, 341, 175, 40), func(): game.set_fullscreen(true), game.preferences.fullscreen)
+  add_button("LOW-POLY", Rect2(500, 399, 175, 40), func(): game.set_graphics_style("lowpoly"), game.preferences.graphics_style == "lowpoly")
+  add_button("REALISTIC", Rect2(690, 399, 175, 40), func(): game.set_graphics_style("realistic"), game.preferences.graphics_style == "realistic")
   add_sfx_slider()
-  add_button("BACK   /   ESC", Rect2(520, 477, 240, 46), game.close_settings)
+  add_button("BACK   /   ESC", Rect2(520, 515, 240, 46), game.close_settings)
  elif game.phase == "upgrade":
   for i in range(game.choices.size()):
    var slot: int = i
@@ -180,7 +182,7 @@ func add_button(text: String, rect: Rect2, action: Callable, selected: bool = fa
 
 func add_sfx_slider() -> void:
  var slider := HSlider.new()
- slider.position = Vector2(500, 427)
+ slider.position = Vector2(500, 457)
  slider.size = Vector2(330, 24)
  slider.min_value = 0
  slider.max_value = 100
@@ -203,15 +205,16 @@ func _draw() -> void:
  last_pending_upgrades = game.pending_upgrades
  if game.phase == "settings":
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
-  panel(Rect2(290, 157, 700, 406))
-  label_at(Vector2(330, 205), "SETTINGS", 30, cyan)
-  label_at(Vector2(330, 282), "LANGUAGE", 18)
-  label_at(Vector2(330, 340), "RESOLUTION", 18)
-  label_at(Vector2(330, 398), "DISPLAY MODE", 18)
-  label_at(Vector2(330, 448), "SFX VOLUME", 18)
-  label_at(Vector2(845, 448), "%d%%" % roundi(game.preferences.sfx_volume * 100), 14, muted)
+  panel(Rect2(290, 119, 700, 482))
+  label_at(Vector2(330, 167), "SETTINGS", 30, cyan)
+  label_at(Vector2(330, 225), "LANGUAGE", 18)
+  label_at(Vector2(330, 283), "RESOLUTION", 18)
+  label_at(Vector2(330, 341), "DISPLAY MODE", 18)
+  label_at(Vector2(330, 399), "GRAPHICS STYLE", 18)
+  label_at(Vector2(330, 457), "SFX VOLUME", 18)
+  label_at(Vector2(845, 457), "%d%%" % roundi(game.preferences.sfx_volume * 100), 14, muted)
   if game.settings_error:
-   label_at(Vector2(330, 549), "Settings could not be saved. They apply for this session.", 14, muted, 580)
+   label_at(Vector2(330, 587), "Settings could not be saved. They apply for this session.", 14, muted, 580)
   return
  if game.phase == "menu":
   panel(Rect2(42, 62, 420, 584))
@@ -219,16 +222,15 @@ func _draw() -> void:
   label_at(Vector2(72, 254), "RUSH", 68)
   label_at(Vector2(76, 405), t("Best distance  %04d m") % game.best, 17)
   return
- panel(Rect2(24, 22, 300, 180))
+ panel(Rect2(24, 22, 300, 130))
  label_at(Vector2(43, 50), "PRACTICE / AUTO RESCUE" if game.training else "DISTANCE / PERSONAL BEST", 13, cyan)
  label_at(Vector2(40, 100), "%04d" % game.distance, 44)
  label_at(Vector2(170, 98), "m   /   %04d" % game.best, 17, muted)
- label_at(Vector2(43, 138), t("SPEED %02d m/s   /   %s") % [game.rider.velocity.length(), t(game.rider.mode.to_upper())], 16, cyan, 260)
- label_at(Vector2(43, 168), t("SKATES %d / ARMOR %d / HEIGHT +%dm / SLIDES %d") % [game.rider.tiers.skates, game.rider.armor_charges, Rules.BUILDING_BONUS[game.rider.tiers.high], game.rider.slides], 12, muted, 260)
- panel(Rect2(24, 210, 150, 34), 0.8)
- draw_style_box(style(Color(0.12, 0.2, 0.27, 0.95)), Rect2(32, 217, 38, 20))
- label_at(Vector2(37, 231), "ESC", 11, white)
- label_at(Vector2(80, 233), "PAUSE", 13, muted)
+ label_at(Vector2(43, 138), t("SPEED %02d m/s") % game.rider.velocity.length(), 16, cyan, 260)
+ panel(Rect2(24, 168, 150, 34), 0.8)
+ draw_style_box(style(Color(0.12, 0.2, 0.27, 0.95)), Rect2(32, 175, 38, 20))
+ label_at(Vector2(37, 189), "ESC", 11, white)
+ label_at(Vector2(80, 191), "PAUSE", 13, muted)
  if game.phase == "playing":
   var color: Color = cyan if game.aim_preview.get("valid", false) else Color("ffab8f")
   var cursor: Vector2 = game.aim_screen
@@ -250,7 +252,7 @@ func _draw() -> void:
    draw_double_jump_indicator()
   if game.rider.mode == "slide":
    draw_slide_indicator()
- label_at(Vector2(16, 693), t("LV %02d   /   %d XP") % [game.level, game.xp], 14, white, 260)
+ label_at(Vector2(16, 683), "%d" % game.level, 30, white, 260)
  draw_upgrade_badge(now)
  draw_xp_bar(now)
  draw_levelup_popup(now)
@@ -284,7 +286,9 @@ func draw_double_jump_indicator() -> void:
  var screen_point: Vector2 = game.camera.unproject_position(world_point)
  var max_cooldown: float = Rules.DOUBLE_JUMP_COOLDOWN[game.rider.tiers.double_jump - 1]
  var ready: bool = game.rider.double_jump_left <= 0
- var fill_fraction: float = 1.0 if ready else clampf(game.rider.double_jump_left / max_cooldown, 0, 1)
+ # Reads as "charging up" rather than "draining": empty right after use,
+ # fills back toward full as the cooldown counts down to ready.
+ var fill_fraction: float = 1.0 if ready else clampf(1.0 - game.rider.double_jump_left / max_cooldown, 0, 1)
  var fill_color: Color = Color("6cf17a") if ready else gold
  draw_arc(screen_point, 10, 0, TAU, 20, Color(muted, 0.35), 3, true)
  draw_arc(screen_point, 10, -PI * 0.5, -PI * 0.5 + TAU * fill_fraction, 20, fill_color, 3, true)

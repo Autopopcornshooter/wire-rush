@@ -13,16 +13,33 @@ func _ready() -> void:
  add_theme_stylebox_override("hover", empty)
  add_theme_stylebox_override("pressed", empty)
  add_theme_stylebox_override("focus", empty)
+ mouse_entered.connect(queue_redraw)
+ mouse_exited.connect(queue_redraw)
 
 func _draw() -> void:
  if not is_instance_valid(hud):
   return
  draw_style_box(hud.style(Color(0.035, 0.065, 0.11, 0.92)), Rect2(0, 0, 320, 340))
+ if is_hovered():
+  draw_style_box(hover_style(), Rect2(0, 0, 320, 340))
  draw_badge()
  draw_icon()
  var label_text: String = hud.t(hud.Rules.UPGRADES[key][0])
  var w: float = hud.font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
  draw_string(hud.font, Vector2(160 - w * 0.5, 300), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, hud.white)
+
+func hover_style() -> StyleBoxFlat:
+ # A brighter tint + cyan border on top of the normal panel, so it's clear
+ # which card a mouse/gamepad cursor is currently over before clicking.
+ var result := StyleBoxFlat.new()
+ result.bg_color = Color(hud.cyan.r, hud.cyan.g, hud.cyan.b, 0.1)
+ result.corner_radius_top_left = 10
+ result.corner_radius_top_right = 10
+ result.corner_radius_bottom_left = 10
+ result.corner_radius_bottom_right = 10
+ result.border_color = hud.cyan
+ result.set_border_width_all(3)
+ return result
 
 func draw_icon() -> void:
  match key:

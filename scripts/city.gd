@@ -2,11 +2,27 @@ extends Node3D
 const Rules = preload("res://scripts/rules.gd")
 const Locale = preload("res://scripts/localization.gd")
 const LENGTH: float = 64.0
+## Realistic building models: Downtown City MegaKit by Quaternius (CC0) — see THIRD_PARTY_NOTICES.md.
+const BUILDING_MODELS: Array[PackedScene] = [
+ preload("res://assets/citykit/Building_Small_1.gltf"),
+ preload("res://assets/citykit/Building_Medium_2_001.gltf"),
+ preload("res://assets/citykit/Building_Large_2.gltf"),
+]
+## Same Downtown City MegaKit (CC0) asset pack as the buildings above.
+const ASPHALT_TEXTURE: Texture2D = preload("res://assets/citykit/T_Concrete_Asphalt_BaseColor.png")
+var _asphalt_material: StandardMaterial3D
+## Aerial obstacle visual. Measured (not eyeballed) via the model's own full
+## transform chain: position is the AABB's min corner, in the model's own
+## unscaled local space.
+const DRONE_MODEL: PackedScene = preload("res://models/police_drone.glb")
+const DRONE_AABB_POSITION := Vector3(-1.122137, -0.454674, -1.430983)
+const DRONE_AABB_SIZE := Vector3(2.244274, 4.36355, 3.002841)
 var chunks: Dictionary = {}
 var pickups: Array[Node3D] = []
 var origin_offset: float = 0
 var high_level: int = 0
 var practice: bool = false
+var graphics_style: String = "lowpoly"
 var material_cache: Dictionary = {}
 var locale = Locale.new()
 
@@ -23,6 +39,18 @@ func material(color: Color, glow: bool = false) -> StandardMaterial3D:
   mat.emission_energy_multiplier = 1.6
  material_cache[key] = mat
  return mat
+
+func asphalt_material() -> StandardMaterial3D:
+ if _asphalt_material == null:
+  var mat := StandardMaterial3D.new()
+  mat.albedo_texture = ASPHALT_TEXTURE
+  mat.roughness = 0.95
+  mat.metallic_specular = 0.2
+  # Tile roughly every 8m so the texture doesn't stretch into a blurry
+  # smear across the full 14m-wide, 64m-long road segment.
+  mat.uv1_scale = Vector3(14.0 / 8.0, 64.0 / 8.0, 1)
+  _asphalt_material = mat
+ return _asphalt_material
 
 func box(parent: Node3D, pos: Vector3, size: Vector3, color: Color, solid: bool = false, glow: bool = false) -> Node3D:
  var root: Node3D = StaticBody3D.new() if solid else Node3D.new()
@@ -67,6 +95,7 @@ func create_chunk(index: int) -> void:
  var kind: int = 0 if index < 2 or practice else (index - 2) % 5 + 1
  var road := box(chunk, Vector3(0, -0.5, -32), Vector3(14, 1, 64), Color("192b40"), true)
  road.set_meta("road", true)
+ road.get_child(0).material_override = asphalt_material()
  for side in [-1, 1]:
   box(chunk, Vector3(side * 6.8, 0.035, -32), Vector3(0.1, 0.05, 64), Color("52d8cf"), false, true)
   for b in range(4):
@@ -78,6 +107,10 @@ func create_chunk(index: int) -> void:
    building.set_meta("hookable", true)
    building.set_meta("building", true)
    building.set_meta("base_height", base_height)
+   building.set_meta("model_seed", index * 3 + b + side)
+   building.set_meta("road_side", side)
+   if graphics_style == "realistic":
+    attach_realistic_building(building, 8, 14)
    # Windows are local to the grounded building origin, so upgrades never move a hook.
    var windows := Node3D.new()
    windows.name = "Windows"
@@ -134,8 +167,11 @@ func resize_building(building: Node3D) -> void:
  collision.shape.size.y = height
  collision.position.y = height * 0.5
  building.set_meta("height", height)
- for window in building.get_node("Windows").get_children():
+ var windows: Node3D = building.get_node("Windows")
+ windows.visible = graphics_style != "realistic"
+ for window in windows.get_children():
   window.visible = float(window.get_meta("floor_height")) < height - 1
+ update_realistic_scale(building)
 
 func apply_height_level(level: int) -> void:
  if level == high_level:
@@ -148,15 +184,169 @@ func apply_height_level(level: int) -> void:
    elif child.get_meta("hazard", false):
     child.position.y = float(child.get_meta("base_y")) + Rules.BUILDING_BONUS[high_level] * 0.8
 
+func model_aabb(node: Node3D) -> AABB:
+ # Recursively merges every VisualInstance3D's local AABB into one box in
+ # `node`'s own local space, so a multi-mesh imported scene can be measured
+ # before it has any scale/position applied.
+ var result := AABB()
+ var found := false
+ for child in node.get_children():
+  if child is Node3D:
+   var child_box := AABB()
+   var has_box := false
+   if child is VisualInstance3D:
+    child_box = child.get_aabb()
+    has_box = true
+   var sub: AABB = model_aabb(child)
+   if sub.size != Vector3.ZERO or not sub.position.is_equal_approx(Vector3.ZERO):
+    child_box = child_box.merge(sub) if has_box else sub
+    has_box = true
+   if has_box:
+    child_box = child.transform * child_box
+    result = child_box if not found else result.merge(child_box)
+    found = true
+ return result
+
+func apply_uv_tiling(node: Node, scale: Vector3) -> void:
+ # Non-uniform scaling stretches a mesh's geometry without touching its UVs,
+ # which smears whatever texture detail sits along the stretched axis into a
+ # long streak (e.g. a small trim/accent color turning into a solid band).
+ # Scaling uv1_scale by the same factor makes the texture repeat instead of
+ # smear, keeping brick/window texel size roughly constant. Every building
+ # of a given model shares the same footprint (so the same horizontal
+ # stretch), so this is applied to the model's shared materials directly
+ # rather than duplicating a Material per building instance.
+ if node is MeshInstance3D and node.mesh != null:
+  for i in range(node.mesh.get_surface_count()):
+   var mat: Material = node.mesh.surface_get_material(i)
+   if mat is StandardMaterial3D:
+    # These glTFs carry a baked per-vertex COLOR_0 (probably an authoring
+    # leftover, e.g. a masking layer from the original scene) that ranges
+    # down to pure red on many meshes including the brick walls. Godot's
+    # glTF importer turns on vertex_color_use_as_albedo by default whenever
+    # COLOR_0 exists, so that baked red was getting multiplied straight
+    # into the albedo — nothing to do with the actual brick texture (which
+    # has no red pixels at all) or with UV scale/tiling.
+    mat.vertex_color_use_as_albedo = false
+    # Only the main wall material is authored to tile seamlessly at any
+    # scale; trim/cornice/glass/interior materials are small decorative
+    # strips mapped to a specific spot in their texture. Force-tiling those
+    # too pushed their UVs past 0..1 into the texture's repeat-wrap, which
+    # landed on unrelated atlas pixels and showed up as solid-color bands.
+    if mat.resource_name == "MI_RedBrick":
+     mat.uv1_scale = scale.abs()
+    # The default dielectric Fresnel reflectance (0.5) is tuned for a
+    # generic asset, not sun-lit brick/concrete at a low grazing sun angle —
+    # it was catching a hot, saturated glare on whichever building facades
+    # happened to face the sun most directly, on top of the light energy
+    # itself already being tuned down. Cutting it lowers that glare without
+    # touching the diffuse albedo (so the material still reads as the same
+    # brick/trim color, just less shiny).
+    mat.metallic_specular = 0.2
+ for child in node.get_children():
+  apply_uv_tiling(child, scale)
+
+func attach_realistic_building(building: Node3D, width: float, depth: float) -> void:
+ var index: int = posmod(int(building.get_meta("model_seed", 0)), BUILDING_MODELS.size())
+ var model: Node3D = BUILDING_MODELS[index].instantiate()
+ model.name = "RealisticModel"
+ building.add_child(model)
+ model.set_meta("base_aabb", model_aabb(model))
+ model.set_meta("footprint", Vector2(width, depth))
+ update_realistic_scale(building)
+ # The flat box mesh must stay hidden here too — this runs both for freshly
+ # streamed chunks (create_chunk) and for the live style toggle
+ # (refresh_building_style); only the latter used to hide it, so any
+ # building created while already in "realistic" mode kept showing its old
+ # box drawn right through the new model.
+ building.get_child(0).visible = false
+
+func update_realistic_scale(building: Node3D) -> void:
+ var model: Node3D = building.get_node_or_null("RealisticModel")
+ if model == null:
+  return
+ var box: AABB = model.get_meta("base_aabb")
+ var footprint: Vector2 = model.get_meta("footprint")
+ var height: float = float(building.get_meta("height", building.get_meta("base_height")))
+ if box.size.x <= 0 or box.size.y <= 0 or box.size.z <= 0:
+  return
+ # These Quaternius models are authored with their detailed, window-heavy
+ # facade facing their own local Z axis rather than X, so rotate to bring
+ # that facade to face the road. Which way to rotate depends on which side
+ # of the road the building sits on — a fixed rotation would make one
+ # side's buildings face away from the road instead of toward it.
+ var road_side: int = int(building.get_meta("road_side", -1))
+ var angle: float = -road_side * PI * 0.5
+ # Stretch width and depth independently so the model matches the lowpoly
+ # hitbox's size and position exactly (distortion of angled details is
+ # accepted as the trade-off).
+ var scale := Vector3(footprint.y / box.size.x, height / box.size.y, footprint.x / box.size.z)
+ var basis := Basis(Vector3.UP, angle) * Basis.from_scale(scale)
+ model.transform.basis = basis
+ var target_min := Vector3(-footprint.x * 0.5, 0, -footprint.y * 0.5)
+ # Transform the whole AABB, not just its raw min corner: a 90-degree
+ # rotation can turn that corner into the transformed box's max corner on
+ # some axes, which silently shifted one road side's buildings relative to
+ # their hitbox while the other side happened to line up by coincidence.
+ var world_box: AABB = Transform3D(basis, Vector3.ZERO) * box
+ model.position = target_min - world_box.position
+ apply_uv_tiling(model, scale)
+
+func set_graphics_style(style: String) -> void:
+ if style == graphics_style:
+  return
+ graphics_style = style
+ for chunk in chunks.values():
+  for child in chunk.get_children():
+   if child.get_meta("building", false):
+    refresh_building_style(child)
+
+func refresh_building_style(building: Node3D) -> void:
+ var model: Node3D = building.get_node_or_null("RealisticModel")
+ if graphics_style == "realistic":
+  if model == null:
+   var size: Vector3 = building.get_child(1).shape.size
+   attach_realistic_building(building, size.x, size.z)
+ else:
+  building.get_child(0).visible = true
+  if model != null:
+   model.free()
+ # Recomputes the flat-box windows' visibility (and rescales any realistic
+ # model) for the style that's now active — keeps this one function as the
+ # single source of truth instead of duplicating that logic here too.
+ resize_building(building)
+
 func obstacle(parent: Node3D, pos: Vector3, size: Vector3) -> Node3D:
  var hazard := box(parent, pos + Vector3(0, Rules.BUILDING_BONUS[high_level] * 0.8, 0), size, Color("ad5843"), true)
  hazard.set_meta("hazard", true)
  hazard.set_meta("hookable", true)
  hazard.set_meta("base_y", pos.y)
+ attach_drone_visual(hazard, size)
  box(hazard, Vector3(0, size.y * 0.5 + 0.02, 0), Vector3(size.x, 0.12, size.z + 0.05), Color("ffbc78"), false, true)
  for i in range(3):
   box(parent, Vector3(pos.x, 0.04, pos.z + 40 - i * 8), Vector3(2.4 - i * 0.3, 0.03, 0.35), Color("e8a468"), false, true)
  return hazard
+
+func attach_drone_visual(hazard: StaticBody3D, size: Vector3) -> void:
+ # child(0) is the pink box mesh from box(), child(1) is its CollisionShape3D
+ # — code elsewhere (city.gd's own range_limited_target) reads that
+ # CollisionShape3D via get_child(1), so the box mesh is only hidden, never
+ # freed/reordered, and the drone is appended after both instead of
+ # replacing anything in place.
+ hazard.get_child(0).visible = false
+ var drone: Node3D = DRONE_MODEL.instantiate()
+ hazard.add_child(drone)
+ # Uniform scale fit to the smallest ratio on any axis, so the model never
+ # pokes out past the obstacle's own collision box on any side.
+ var fit_scale: float = minf(minf(size.x / DRONE_AABB_SIZE.x, size.y / DRONE_AABB_SIZE.y), size.z / DRONE_AABB_SIZE.z)
+ drone.scale = Vector3.ONE * fit_scale
+ var center: Vector3 = DRONE_AABB_POSITION + DRONE_AABB_SIZE * 0.5
+ drone.position = -center * fit_scale
+ # No rotation applied, and none varies per spawn: measured through the
+ # model's own full correction-node chain, its face/eye/gun cluster already
+ # sits on the +Z side at identity rotation, and this game's travel
+ # direction is -Z — so "6 o'clock" (the direction opposite of travel) is
+ # already +Z with zero extra rotation needed.
 
 func manual_target(from: Vector3, ray_origin: Vector3, direction: Vector3, reach: float, exclude: RID) -> Dictionary:
  var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_origin + direction.normalized() * 500.0, 1)

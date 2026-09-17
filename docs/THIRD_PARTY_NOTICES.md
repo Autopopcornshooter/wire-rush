@@ -32,9 +32,18 @@ this repository.
 Ability icons in assets/icons/ are derived from game-icons.net by Delapouite
 (https://delapouite.com) under CC BY 3.0 (http://creativecommons.org/licenses/by/3.0/):
 "Roller skate", "Checked Shield", "Modern city", "Hook", "Film spool",
-"Jump across". Recolored; no other modification. No Kenney/Quaternius asset
-is bundled in this prototype.
-The original planning document mentions possible future art assets only.
+"Jump across". Recolored; no other modification.
+
+Realistic building models and textures in assets/citykit/ (Building_Small_1,
+Building_Medium_2_001, Building_Large_2, and their T_* textures) are from the
+Downtown City MegaKit by Quaternius (https://quaternius.com), released under
+CC0 1.0 Universal (public domain, no attribution required):
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The sky HDRI in assets/sky/ (kloofendal_43d_clear_puresky_2k.hdr) is from
+Poly Haven (https://polyhaven.com), released under CC0 1.0 Universal (public
+domain, no attribution required):
+https://creativecommons.org/publicdomain/zero/1.0/
 
 Noto Sans KR is bundled for Korean and English text. Copyright 2014-2021
 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. It is

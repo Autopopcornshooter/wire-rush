@@ -80,21 +80,39 @@ func _ready() -> void:
 func setup_environment() -> void:
  var world := WorldEnvironment.new()
  var env := Environment.new()
- env.background_mode = Environment.BG_COLOR
- env.background_color = Color("101f35")
+ # A real clear-sky HDRI instead of a flat color or procedural gradient —
+ # kloofendal_43d_clear_puresky by Poly Haven (CC0), see THIRD_PARTY_NOTICES.md.
+ env.background_mode = Environment.BG_SKY
+ var sky_material := PanoramaSkyMaterial.new()
+ sky_material.panorama = preload("res://assets/sky/kloofendal_43d_clear_puresky_2k.hdr")
+ var sky := Sky.new()
+ sky.sky_material = sky_material
+ env.sky = sky
  env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
  env.ambient_light_color = Color("b0d0eb")
  env.ambient_light_energy = 0.7
  env.fog_enabled = true
  env.fog_light_color = Color("233d58")
  env.fog_density = 0.003
+ # Godot blends fog into the sky background by default (fog_sky_affect=1),
+ # which was tinting the whole HDRI down to the same flat navy as the old
+ # fog color — the sky looked unchanged no matter what texture it used.
+ # Zero this so distance fog still hazes the buildings/road but the sky
+ # itself renders as the actual bright HDRI.
+ env.fog_sky_affect = 0.0
  env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
  world.environment = env
  add_child(world)
  var sun := DirectionalLight3D.new()
  sun.rotation_degrees = Vector3(-42, -30, 0)
- sun.light_color = Color("ffdab0")
- sun.light_energy = 1.4
+ # A strongly saturated warm tint (ffdab0) at 1.4 energy over-amplified the
+ # realistic buildings' red-brick/trim albedo into a blown, flickering-hot
+ # look; the flat-color lowpoly boxes didn't show it as clearly since they
+ # have no normal-map micro-detail to catch grazing specular highlights.
+ # No material uses emission (verified in the source glTFs), so this is a
+ # lighting/exposure fix, not a material fix.
+ sun.light_color = Color("f4e3c9")
+ sun.light_energy = 0.85
  sun.shadow_enabled = true
  add_child(sun)
  camera = Camera3D.new()
@@ -112,6 +130,7 @@ func create_world(practice: bool) -> void:
  city = City.new()
  city.locale = locale
  city.practice = practice
+ city.graphics_style = preferences.graphics_style
  add_child(city)
  city.update_chunks(0)
  rider = Rider.new()
@@ -245,7 +264,7 @@ func _process(delta: float) -> void:
  camera.position = camera.position.lerp(camera_goal, 1.0 - exp(-7.0 * delta))
  var desired_basis: Basis = Transform3D.IDENTITY.looking_at(camera_look - camera.position, Vector3.UP).basis
  camera.basis = camera.basis.slerp(desired_basis, 1.0 - exp(-8.0 * delta))
- camera.fov = lerpf(camera.fov, 75.0 + clampf(rider.velocity.length() - 12, 0, 18) * 0.35, minf(1, delta * 2))
+ camera.fov = lerpf(camera.fov, 75.0 + clampf(rider.velocity.length() - 12, 0, 30) * 0.55, minf(1, delta * 2))
  rider.draw_wire()
  hud.queue_redraw()
  if "--capture" in OS.get_cmdline_user_args() and not capture_done:
@@ -334,6 +353,15 @@ func set_sfx_volume(value: float) -> void:
  preferences.sfx_volume = clampf(value, 0.0, 1.0)
  apply_sfx_volume()
  save_preferences()
+
+func set_graphics_style(style: String) -> void:
+ if style not in ["lowpoly", "realistic"]:
+  return
+ preferences.graphics_style = style
+ if is_instance_valid(city):
+  city.set_graphics_style(style)
+ save_preferences()
+ hud.rebuild_buttons()
 
 func apply_display_settings() -> void:
  if DisplayServer.get_name() == "headless":
