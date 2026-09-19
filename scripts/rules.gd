@@ -9,7 +9,13 @@ const SAFE_RELEASE_HEIGHT: float = 5.0
 const DOUBLE_JUMP_COOLDOWN: Array[float] = [10.0, 7.0, 5.0]
 const WALL_JUMP_PUSH: float = 8.5
 const STOP_SPEED: float = 0.15
-const SLIDE_SECONDS: Array[float] = [0.0, 2.0, 3.0, 4.0]
+## Roller-skate charge system (index 0 is the unused "no skates" tier).
+## Charge is a persistent 0..1 resource (Rider.skate_charge): draining while
+## actively sliding, recovering while not, independent of wire/jump/landing
+## events. SKATE_MAX_DURATION is how long a *full* charge lasts once spent;
+## SKATE_RECHARGE_DURATION is how long an *empty* charge takes to refill.
+const SKATE_MAX_DURATION: Array[float] = [0.0, 2.0, 3.5, 5.0]
+const SKATE_RECHARGE_DURATION: Array[float] = [1.0, 4.0, 7.0, 10.0]
 const BUILDING_BONUS: Array[float] = [0.0, 10.0, 20.0, 30.0]
 const ARMOR_PROTECTION: float = 2.0
 const COUNTDOWN_BEAT: float = 0.7
@@ -21,7 +27,7 @@ const CAMERA_DAMPING: float = 5.0
 ## the distance is. FOV/projection untouched.
 const CAMERA_OFFSET := Vector3(0, 1.755617, 4.681646)
 const UPGRADES: Dictionary = {
- "skates": ["ROLLER SKATES", "Keep landing speed for 2 / 3 / 4 seconds. Release at player height 5m or below to slide."],
+ "skates": ["ROLLER SKATES", "Keep landing speed for up to 2 / 3.5 / 5 seconds of charge. Release at player height 5m or below to slide."],
  "armor": ["IMPACT ARMOR", "Keep moving after a hit: blink and ignore obstacles for 2s. Hidden while armor remains."],
  "high": ["TALLER BUILDINGS", "Raise buildings by 10 / 20 / 30m. Aerial obstacles also rise."],
  "range": ["LONGER WIRE", "+10% wire reach. Connect to a more distant point."],

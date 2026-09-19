@@ -19,6 +19,5 @@ Invoke-Check 'settings-aim' @('--headless','--fixed-fps','60','--path',$projectR
 Invoke-Check 'range-obstacle' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/range_obstacle.gd','--','--test')
 Invoke-Check 'jump-abilities' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/jump_abilities.gd','--','--test')
 Invoke-Check 'comfort' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/comfort.gd','--','--test')
-Invoke-Check 'graphics-style' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/graphics_style.gd','--','--test')
 Invoke-Check 'character-animation' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/character_animation.gd','--','--test')
 Write-Output 'All validation gates passed.'

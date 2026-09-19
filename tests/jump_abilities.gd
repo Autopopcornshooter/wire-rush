@@ -43,6 +43,22 @@ func run() -> void:
  var right_practice: Array = game.city.chunks[3].get_children().filter(func(n: Node): return n.get_meta("building", false) and n.position.x > 0)
  check(left_practice.size() == 4 and right_practice.size() == 4, "practice mode always keeps both walls for swing practice")
 
+ # Past 2000m (index 32 = 2048m), a recurring building-free span appears.
+ await fixture()
+ game.city.practice = false
+ check(2048.0 >= game.city.NO_BUILDING_SECTION_START_DISTANCE, "fixture sanity: chunk 32 starts past the no-building threshold")
+ game.city.create_chunk(32)
+ var no_building_chunk: Array = game.city.chunks[32].get_children().filter(func(n: Node): return n.get_meta("building", false))
+ var no_building_hazards: Array = game.city.chunks[32].get_children().filter(func(n: Node): return n.get_meta("hazard", false))
+ check(no_building_chunk.is_empty(), "a no-building special section has no playable buildings on either side")
+ check(no_building_hazards.size() > 0, "a no-building special section still spawns aerial (police drone) obstacles")
+ game.city.create_chunk(35)
+ var resumed_chunk: Array = game.city.chunks[35].get_children().filter(func(n: Node): return n.get_meta("building", false))
+ check(not resumed_chunk.is_empty(), "the ordinary building-lined layout resumes after the special section ends")
+ game.city.create_chunk(40)
+ var recurs_chunk: Array = game.city.chunks[40].get_children().filter(func(n: Node): return n.get_meta("building", false))
+ check(recurs_chunk.is_empty(), "the special section recurs periodically rather than only appearing once")
+
  await fixture()
  game.rider.mode = "ground"
  game.rider.jump()

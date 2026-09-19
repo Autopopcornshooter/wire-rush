@@ -161,16 +161,47 @@ func run() -> void:
   await hook(4)
   game.rider.tiers.skates = tier
   await touchdown()
-  check(game.rider.mode == "slide" and game.rider.slide_left > Rules.SLIDE_SECONDS[tier] - 0.2, "tier %d starts close to its full slide duration" % tier)
+  check(game.rider.mode == "slide" and game.rider.slide_left > Rules.SKATE_MAX_DURATION[tier] - 0.2, "tier %d starts close to its full slide duration" % tier)
   var before: float = Vector2(game.rider.velocity.x, game.rider.velocity.z).length()
   await frames(30)
   var mid: float = Vector2(game.rider.velocity.x, game.rider.velocity.z).length()
   speeds.append(mid)
   check(is_equal_approx(mid, before), "tier %d keeps landing speed while the slide is active" % tier)
   check(game.rider.mode == "slide" and game.rider.slide_left > 0, "tier %d slide is still active mid-duration" % tier)
-  await frames(int(Rules.SLIDE_SECONDS[tier] * 60) + 10)
+  await frames(int(Rules.SKATE_MAX_DURATION[tier] * 60) + 10)
   check(game.rider.mode == "ground" and game.rider.velocity.length() < 0.1, "tier %d slide stops once its timed duration elapses" % tier)
  check(speeds[0] == speeds[1] and speeds[1] == speeds[2], "slide speed is unaffected by the skate tier; only duration changes")
+
+ # Skate charge: persistent resource, unaffected by wire connect/release,
+ # only drained by actually sliding and recharged by not sliding. Uses
+ # direct field manipulation (this file's established fixture style, e.g.
+ # stop_on_ground()/jump() called directly elsewhere) to isolate the charge
+ # math itself from incidental physics like the automatic reel-in swinging
+ # the player back down into a real landing mid-test.
+ await fixture()
+ game.rider.tiers.skates = 1
+ check(is_equal_approx(game.rider.skate_charge, 1.0), "skate charge starts full on a fresh run")
+ var aim_point := Vector3(-7.4, 4, game.rider.position.z - 8)
+ var target: Dictionary = game.city.manual_target(game.rider.position, game.rider.position, (aim_point - game.rider.position).normalized(), game.rider.reach(), game.rider.get_rid())
+ var charge_before_fire: float = game.rider.skate_charge
+ check(game.rider.fire_manual(target, -1), "fixture wire fires for the connect-timing check")
+ check(game.rider.skate_charge == charge_before_fire, "firing a wire does not touch skate charge at all, even before it connects")
+ game.rider.release_wire()
+
+ game.rider.tiers.skates = 1
+ game.rider.skate_charge = 0.0
+ game.rider.mode = "ground"
+ game.rider.position = Vector3(0, 0.9, game.rider.position.z)
+ game.rider.velocity = Vector3.ZERO
+ await frames(int(Rules.SKATE_RECHARGE_DURATION[1] * 60) + 10)
+ check(game.rider.skate_charge > 0.98, "an empty skate charge fully recharges after its tier's recharge duration while not sliding")
+ game.rider.mode = "air"
+ game.rider.fresh_landing_hook = true
+ game.rider.jump_exempt = false
+ await touchdown()
+ check(game.rider.mode == "slide" and game.rider.slide_left > Rules.SKATE_MAX_DURATION[1] - 0.2, "a recharged tier can slide at near-full duration again")
+ await frames(int(Rules.SKATE_MAX_DURATION[1] * 60) + 10)
+ check(game.rider.mode == "ground" and game.rider.skate_charge < 0.1, "a full-duration slide drains skate charge back down to ~0 (a little recharge accrues in the trailing wait frames after it ends, by design)")
 
  await fixture()
  await hook(4)
@@ -198,6 +229,24 @@ func run() -> void:
  await touchdown()
  check(game.rider.mode == "slide" and game.rider.slides == 2, "a fresh wire released low after jumping permits a new slide")
 
+ # Regression: walking straight off a ledge (no floor ahead) used to leave
+ # mode == "ground" — still showing the walking pose — for several physics
+ # frames while already visibly past the edge, before gravity accumulated
+ # enough to flip it to "air". Confirmed from an actual screenshot of the
+ # character mid-air over a rooftop gap, clearly in a ground-movement pose.
+ await fixture()
+ game.rider.mode = "ground"
+ game.rider.position = Vector3(0, 50, 0)
+ game.rider.velocity = Vector3(0, 0, -4.5)
+ var frames_to_air: int = -1
+ for i in range(6):
+  await physics_frame
+  game.rider.simulate(1.0 / 60, 0, 0)
+  if game.rider.mode == "air":
+   frames_to_air = i
+   break
+ check(frames_to_air >= 0 and frames_to_air <= 1, "walking off a ledge with no floor ahead flips to air within 1 frame, not several")
+
  await fixture()
  game.rider.upgrade("armor")
  game.rider.hurt("OBSTACLE COLLISION")
@@ -205,6 +254,32 @@ func run() -> void:
  game.rider.hurt("OBSTACLE COLLISION")
  check(game.rider.mode != "dead", "obstacle protection still covers a collision cluster")
  game.rider.invincible = 0
+
+ # Vehicles reuse the exact same obstacle-collision path as any other
+ # hazard — no separate "vehicle damage" system — verified here through a
+ # real physics collision (move_and_collide against an actual spawned
+ # AnimatableBody3D), not just a direct hurt() call.
+ await fixture()
+ game.city.practice = false
+ game.rider.upgrade("armor")
+ game.rider.armor_charges = 1
+ var armored_car: Node3D = game.city.spawn_vehicle(game.city.chunks[0], 0, Vector3(0, 0, -20), -1.0)
+ check(armored_car != null, "fixture: spawned a vehicle to collide with")
+ game.rider.position = Vector3(0, 0.9, -17.4)
+ game.rider.velocity = Vector3(0, 0, -25)
+ game.rider.invincible = 0
+ await frames(5)
+ check(game.rider.mode != "dead" and game.rider.armor_charges == 0, "armor absorbs a real collision with a spawned vehicle, consuming one charge")
+
+ await fixture()
+ game.city.practice = false
+ var unarmored_car: Node3D = game.city.spawn_vehicle(game.city.chunks[0], 0, Vector3(0, 0, -20), -1.0)
+ check(unarmored_car != null, "fixture: spawned a second vehicle to collide with")
+ game.rider.position = Vector3(0, 0.9, -17.4)
+ game.rider.velocity = Vector3(0, 0, -25)
+ game.rider.invincible = 0
+ await frames(5)
+ check(game.rider.mode == "dead", "colliding with a vehicle without armor is fatal, same rule as any other obstacle")
  game.phase = "paused"
  game.resume()
  game.countdown = 0
@@ -224,26 +299,39 @@ func run() -> void:
  var original_height: float = building.get_meta("height")
  var original_hazard_y: float = blocks[0].position.y
  game.rider.upgrade("high")
- check(is_equal_approx(building.get_meta("height"), original_height + 10), "height perk raises existing building geometry")
- check(is_equal_approx(blocks[0].position.y, original_hazard_y + 8), "height perk raises existing aerial hazards")
- check(is_equal_approx(building.get_child(1).shape.size.y, original_height + 10), "building collision height grows with the mesh")
+ # Building Height is next-chunk-only now: picking it must never move
+ # geometry that already exists (no popping buildings, no teleporting
+ # obstacles/hooks under the player).
+ check(is_equal_approx(building.get_meta("height"), original_height), "picking Building Height does not resize an already-existing chunk's building")
+ check(is_equal_approx(building.get_child(1).shape.size.y, original_height), "...or its already-existing collision shape")
+ check(is_equal_approx(blocks[0].position.y, original_hazard_y), "...or move an already-existing chunk's aerial obstacles")
  game.city.create_chunk(9)
+ var future_hazards: Array = hazards(game.city.chunks[9])
  var future: Node3D = buildings(game.city.chunks[9])[0]
- check(is_equal_approx(future.get_meta("height"), float(future.get_meta("base_height")) + 10), "new chunks inherit the same height perk")
+ check(is_equal_approx(future.get_meta("height"), float(future.get_meta("base_height")) + 10), "a newly created chunk inherits the raised height")
+ check(future_hazards.size() == 5, "a newly created chunk at a higher Building Height tier also gets more obstacles")
  game.rider.upgrade("high")
  game.rider.upgrade("high")
- check(is_equal_approx(building.get_meta("height"), original_height + 30) and is_equal_approx(blocks[0].position.y, original_hazard_y + 24), "highest tier scales buildings and hazards together")
+ check(is_equal_approx(building.get_meta("height"), original_height) and is_equal_approx(blocks[0].position.y, original_hazard_y), "further upgrades still never touch the original chunk, even at the highest tier")
+ game.city.create_chunk(10)
+ var maxed_hazards: Array = hazards(game.city.chunks[10])
+ check(maxed_hazards.size() == 7, "the highest Building Height tier's new chunks get the most obstacles")
+ var hazard_ys: Array = maxed_hazards.map(func(n: Node3D): return n.position.y)
+ check(hazard_ys.min() < 10.0, "the highest tier's obstacles still cover the original low band...")
+ check(hazard_ys.max() > original_hazard_y + 20.0, "...as well as spreading up into the newly taller usable height, not just sliding the same 4 spots upward")
 
  await fixture()
  await hook(4)
  var fixed: Vector3 = game.rider.anchor.global_position
  game.rider.upgrade("high")
  check(game.rider.anchor.global_position == fixed, "growing a building does not displace its fixed wall hook")
- var roof_target := Vector3(-7.4, 32, -8)
- game.rider.position = Vector3(0, 23, 0)
+ game.city.create_chunk(5)
+ var tall_chunk: Node3D = game.city.chunks[5]
+ var roof_target := Vector3(-7.4, 32, tall_chunk.position.z - 8)
+ game.rider.position = Vector3(0, 23, tall_chunk.position.z)
  await physics_frame
  var tall: Dictionary = game.city.manual_target(game.rider.position, game.rider.position, (roof_target - game.rider.position).normalized(), 30, game.rider.get_rid())
- check(tall.valid, "newly raised wall area is hookable through actual collision geometry")
+ check(tall.valid, "a newly created chunk's raised wall is hookable through actual collision geometry")
 
  await fixture()
  var hazard: Node3D = game.city.obstacle(game.city.chunks[0], Vector3(0, 4.9, -10), Vector3(2.6, 2.2, 1.4))

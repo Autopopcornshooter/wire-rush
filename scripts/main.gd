@@ -99,7 +99,24 @@ func setup_environment() -> void:
  # fog color — the sky looked unchanged no matter what texture it used.
  # Zero this so distance fog still hazes the buildings/road but the sky
  # itself renders as the actual bright HDRI.
+ # Godot blends fog into the sky background by default (fog_sky_affect=1),
+ # which flattens the whole HDRI sky down to a solid fog-colored screen. This
+ # got dropped by accident while adding height fog below (see git history),
+ # which is exactly what made the entire view — not just the background city
+ # — look like a single flat blue-gray screen instead of showing the sky.
  env.fog_sky_affect = 0.0
+ # Height fog on top of the distance fog above, scoped to the background
+ # city well below the road (City.BACKGROUND_Y = -55): a *positive*
+ # fog_height_density makes fog denser as height decreases *below*
+ # fog_height, and contributes nothing at or above it. (An earlier attempt
+ # used a negative value here, which — backwards from what its own comment
+ # assumed — makes fog denser *above* fog_height instead, so it was hazing
+ # every playable building along with the background. Also note: this
+ # project's renderer is gl_compatibility, which doesn't support
+ # FogVolume/volumetric fog at all — Forward+ only — so plain height fog is
+ # the only depth-scoped option available here.)
+ env.fog_height = 0.0
+ env.fog_height_density = 0.05
  env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
  world.environment = env
  add_child(world)
@@ -130,7 +147,6 @@ func create_world(practice: bool) -> void:
  city = City.new()
  city.locale = locale
  city.practice = practice
- city.graphics_style = preferences.graphics_style
  add_child(city)
  city.update_chunks(0)
  rider = Rider.new()
@@ -233,10 +249,11 @@ func _physics_process(delta: float) -> void:
   return
  process_mouse_commands()
  var steer: float = float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A))
+ var forward: float = float(Input.is_physical_key_pressed(KEY_W))
  if demo:
   demo_time += delta
   demo_manual()
- rider.simulate(delta, steer)
+ rider.simulate(delta, steer, forward)
  var previous: float = distance
  distance = Rules.progress(distance, rider.position.z, city.origin_offset)
  xp += distance - previous
@@ -245,6 +262,7 @@ func _physics_process(delta: float) -> void:
  if collected > 0:
   tone(960, 0.055)
  city.update_chunks(distance, rider.anchor)
+ city.update_vehicles(delta)
  if rider.position.z < -2048:
   city.rebase(2048)
   rider.position.z += 2048
@@ -354,15 +372,6 @@ func set_sfx_volume(value: float) -> void:
  apply_sfx_volume()
  save_preferences()
 
-func set_graphics_style(style: String) -> void:
- if style not in ["lowpoly", "realistic"]:
-  return
- preferences.graphics_style = style
- if is_instance_valid(city):
-  city.set_graphics_style(style)
- save_preferences()
- hud.rebuild_buttons()
-
 func apply_display_settings() -> void:
  if DisplayServer.get_name() == "headless":
   return
@@ -408,7 +417,7 @@ func capture() -> void:
  get_tree().quit()
 
 func gameplay_released() -> bool:
- return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_A) and not Input.is_physical_key_pressed(KEY_D)
+ return not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(KEY_SPACE) and not Input.is_physical_key_pressed(KEY_A) and not Input.is_physical_key_pressed(KEY_D) and not Input.is_physical_key_pressed(KEY_W)
 
 func resume() -> void:
  pending_mouse.clear()

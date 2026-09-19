@@ -42,7 +42,9 @@ const MIXAMO_BONES: Dictionary = {
 }
 
 ## Game animation state -> source Mixamo file + whether it should loop.
-## throw.fbx is not used at all. Start Swinging and Swinging are both
+## throw.fbx and Running.fbx are not used at all — ground movement is
+## walking/strafing only now (see character_visual.gd's pick_ground_move_
+## state()), never a "running" clip/state. Start Swinging and Swinging are both
 ## trimmed source files (fire/grab motion only, and grab-to-kick motion
 ## only, respectively — no landing/finish beat baked into either), each
 ## played once; "swing_hold" (built below) freezes Swinging's own last
@@ -50,7 +52,9 @@ const MIXAMO_BONES: Dictionary = {
 ## while still on the wire.
 const CLIPS: Dictionary = {
 	"idle": {"file": "res://animations/Idle.fbx", "loop": true},
-	"running": {"file": "res://animations/Running.fbx", "loop": true},
+	"walking": {"file": "res://animations/Walking.fbx", "loop": true},
+	"left_strafe_walk": {"file": "res://animations/Left Strafe Walk.fbx", "loop": true},
+	"right_strafe_walk": {"file": "res://animations/Right Strafe Walk.fbx", "loop": true},
 	"jump": {"file": "res://animations/Running Jump.fbx", "loop": false},
 	"falling": {"file": "res://animations/Falling Idle.fbx", "loop": true},
 	"start_swinging": {"file": "res://animations/Start Swinging.fbx", "loop": false},

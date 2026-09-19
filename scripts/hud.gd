@@ -96,8 +96,8 @@ func rebuild_buttons() -> void:
   add_button("SETTINGS", Rect2(76, 563, 164, 40), game.open_settings)
   add_button("QUIT", Rect2(252, 563, 164, 40), func(): game.get_tree().quit())
  elif game.phase == "dead":
-  add_button("RUN AGAIN   /   R", Rect2(440, 461, 400, 54), func(): game.start_run(game.training))
-  add_button("MAIN MENU", Rect2(440, 529, 400, 46), game.return_menu)
+  add_button("RUN AGAIN   /   R", Rect2(440, 495, 400, 54), func(): game.start_run(game.training))
+  add_button("MAIN MENU", Rect2(440, 563, 400, 46), game.return_menu)
  elif game.phase == "paused":
   var layout: Dictionary = pause_layout()
   add_button("Resume", Rect2(layout.button_x, layout.button_y, layout.button_w, layout.button_h), game.resume)
@@ -112,10 +112,8 @@ func rebuild_buttons() -> void:
    add_button("%d×%d" % [size.x, size.y], Rect2(500 + i * 130, 283, 120, 40), func(): game.set_window_size(size), selected)
   add_button("WINDOWED", Rect2(500, 341, 175, 40), func(): game.set_fullscreen(false), not game.preferences.fullscreen)
   add_button("FULLSCREEN", Rect2(690, 341, 175, 40), func(): game.set_fullscreen(true), game.preferences.fullscreen)
-  add_button("LOW-POLY", Rect2(500, 399, 175, 40), func(): game.set_graphics_style("lowpoly"), game.preferences.graphics_style == "lowpoly")
-  add_button("REALISTIC", Rect2(690, 399, 175, 40), func(): game.set_graphics_style("realistic"), game.preferences.graphics_style == "realistic")
   add_sfx_slider()
-  add_button("BACK   /   ESC", Rect2(520, 515, 240, 46), game.close_settings)
+  add_button("BACK   /   ESC", Rect2(520, 457, 240, 46), game.close_settings)
  elif game.phase == "upgrade":
   for i in range(game.choices.size()):
    var slot: int = i
@@ -182,7 +180,7 @@ func add_button(text: String, rect: Rect2, action: Callable, selected: bool = fa
 
 func add_sfx_slider() -> void:
  var slider := HSlider.new()
- slider.position = Vector2(500, 457)
+ slider.position = Vector2(500, 399)
  slider.size = Vector2(330, 24)
  slider.min_value = 0
  slider.max_value = 100
@@ -205,16 +203,15 @@ func _draw() -> void:
  last_pending_upgrades = game.pending_upgrades
  if game.phase == "settings":
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
-  panel(Rect2(290, 119, 700, 482))
+  panel(Rect2(290, 119, 700, 424))
   label_at(Vector2(330, 167), "SETTINGS", 30, cyan)
   label_at(Vector2(330, 225), "LANGUAGE", 18)
   label_at(Vector2(330, 283), "RESOLUTION", 18)
   label_at(Vector2(330, 341), "DISPLAY MODE", 18)
-  label_at(Vector2(330, 399), "GRAPHICS STYLE", 18)
-  label_at(Vector2(330, 457), "SFX VOLUME", 18)
-  label_at(Vector2(845, 457), "%d%%" % roundi(game.preferences.sfx_volume * 100), 14, muted)
+  label_at(Vector2(330, 399), "SFX VOLUME", 18)
+  label_at(Vector2(845, 399), "%d%%" % roundi(game.preferences.sfx_volume * 100), 14, muted)
   if game.settings_error:
-   label_at(Vector2(330, 587), "Settings could not be saved. They apply for this session.", 14, muted, 580)
+   label_at(Vector2(330, 529), "Settings could not be saved. They apply for this session.", 14, muted, 580)
   return
  if game.phase == "menu":
   panel(Rect2(42, 62, 420, 584))
@@ -250,7 +247,7 @@ func _draw() -> void:
    draw_arc(locked, 10, 0, TAU, 24, cyan, 2, true)
   if game.rider.tiers.double_jump > 0:
    draw_double_jump_indicator()
-  if game.rider.mode == "slide":
+  if game.rider.tiers.skates > 0:
    draw_slide_indicator()
  label_at(Vector2(16, 683), "%d" % game.level, 30, white, 260)
  draw_upgrade_badge(now)
@@ -265,12 +262,12 @@ func _draw() -> void:
   draw_pause_key_box(layout.key_box)
   draw_pause_upgrade_list(layout.icon_list, layout.owned)
  elif game.phase == "dead":
-  panel(Rect2(382, 155, 516, 460))
-  label_at(Vector2(437, 211), "RESULT", 30, cyan)
-  label_at(Vector2(435, 280), "%04d m" % game.distance, 54)
-  label_at(Vector2(440, 360), t("Top speed  %.1f m/s   /   Blocks  %d") % [game.rider.high_speed, int(game.distance / 64)], 19, white, 400)
-  label_at(Vector2(440, 397), t("Skate landings  %d   /   Level  %d") % [game.rider.slides, game.level], 19, white, 400)
-  label_at(Vector2(440, 430), t("Skates %d / Armor %d / Buildings %d") % [game.rider.tiers.skates, game.rider.tiers.armor, game.rider.tiers.high], 16, muted, 400)
+  panel(Rect2(382, 155, 516, 480))
+  label_at(Vector2(437, 205), "RESULT", 30, cyan)
+  label_at(Vector2(435, 270), "%04d m" % game.distance, 54)
+  label_at(Vector2(440, 350), t("Top speed  %.1f m/s") % game.rider.high_speed, 19, white, 400)
+  label_at(Vector2(440, 382), t("Level  %d") % game.level, 19, white, 400)
+  draw_result_abilities(414.0)
  elif game.phase == "upgrade":
   label_centered(640, 115, "CHOOSE YOUR NEXT EDGE", 30, cyan)
  elif game.phase == "countdown":
@@ -294,14 +291,17 @@ func draw_double_jump_indicator() -> void:
  draw_arc(screen_point, 10, -PI * 0.5, -PI * 0.5 + TAU * fill_fraction, 20, fill_color, 3, true)
 
 func draw_slide_indicator() -> void:
- # A vertical fuel-gauge bar beside the character's left hip, draining as the
- # timed slide runs out — replaces the old floating "Xs left / Y m/s" panel.
+ # A vertical fuel-gauge bar beside the character's left hip. Shown at all
+ # times once skates are picked (same convention as the double-jump
+ # indicator above), not just mid-slide, since skate_charge is now a
+ # persistent resource that drains while sliding and recharges the rest of
+ # the time — reading it directly here keeps the bar accurate in both
+ # states instead of only meaning something during the brief slide window.
  var world_point: Vector3 = game.rider.visuals.global_transform * Vector3(-0.55, 0.15, 0.1)
  if game.camera.is_position_behind(world_point):
   return
  var screen_point: Vector2 = game.camera.unproject_position(world_point)
- var max_duration: float = Rules.SLIDE_SECONDS[game.rider.tiers.skates]
- var fraction: float = clampf(game.rider.slide_left / max_duration, 0, 1) if max_duration > 0 else 0.0
+ var fraction: float = clampf(game.rider.skate_charge, 0, 1)
  var bar_size := Vector2(8, 40)
  var top_left: Vector2 = screen_point - bar_size * 0.5
  draw_rect(Rect2(top_left, bar_size), Color(muted, 0.35))
@@ -339,6 +339,40 @@ func draw_pause_upgrade_list(rect: Rect2, owned: Array) -> void:
   for i in range(tier):
    draw_circle(Vector2(start_x + i * dot_gap, y + PAUSE_ICON_SIZE + 7), 2.5, cyan)
   y += PAUSE_ICON_SIZE + PAUSE_DOT_H + PAUSE_ICON_ROW_GAP
+
+## Lists every non-armor ability picked up this run (skipped entirely if
+## none were), each as "DISPLAY NAME  xN" using the same tier count already
+## shown elsewhere (pause screen's dot row). Armor is excluded per request —
+## it's a consumable defensive pickup, not a persistent ability like the
+## others.
+## Icon + tier-dot row (matching the pause screen's own icon list style)
+## instead of a text list, centered on the result panel. Armor is excluded —
+## it's a consumable defensive pickup, not a persistent ability like the
+## others.
+func draw_result_abilities(y: float) -> void:
+ var owned: Array = []
+ for key in Rules.UPGRADES:
+  if key != "armor" and game.rider.tiers[key] > 0:
+   owned.append(key)
+ if owned.is_empty():
+  return
+ var icon_map: Dictionary = {
+  "skates": icon_skate, "high": icon_city, "range": icon_hook,
+  "reel": icon_reel, "hook": icon_hook, "jump": icon_jump, "double_jump": icon_jump,
+ }
+ var icon_size: float = 32.0
+ var gap: float = 54.0
+ var cx: float = 640.0
+ var start_x: float = cx - (owned.size() - 1) * gap * 0.5
+ for i in range(owned.size()):
+  var key: String = owned[i]
+  var x: float = start_x + i * gap
+  draw_texture_rect(icon_map[key], Rect2(x - icon_size * 0.5, y, icon_size, icon_size), false, cyan)
+  var tier: int = game.rider.tiers[key]
+  var dot_gap: float = 9.0
+  var dot_start_x: float = x - (tier - 1) * dot_gap * 0.5
+  for d in range(tier):
+   draw_circle(Vector2(dot_start_x + d * dot_gap, y + icon_size + 10), 2.5, cyan)
 
 func draw_upgrade_badge(now: float) -> void:
  if game.pending_upgrades <= 0:

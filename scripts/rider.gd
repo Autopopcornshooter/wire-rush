@@ -22,6 +22,11 @@ var invincible: float = 0
 var double_jump_left: float = 0
 var touching_wall_side: int = 0
 var slide_left: float = 0
+## Persistent 0..1 roller-skate resource (see Rules.SKATE_MAX_DURATION/
+## SKATE_RECHARGE_DURATION). Only reset() touches this directly — wire
+## connects, jumps, and landings never reset it, only slide usage (drain)
+## and time spent not sliding (recharge) do.
+var skate_charge: float = 1.0
 var ignored_obstacles: Array[PhysicsBody3D] = []
 var armor_charges: int = 0
 var tiers: Dictionary = {"skates": 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0, "double_jump": 0}
@@ -89,6 +94,7 @@ func reset(training: bool) -> void:
  double_jump_left = 0
  touching_wall_side = 0
  slide_left = 0
+ skate_charge = 1.0
  slides = 0
  high_speed = 0
 
@@ -163,12 +169,12 @@ func landing_height() -> float:
 func landing_safe() -> bool:
  return jump_exempt or landing_height() <= Rules.SAFE_RELEASE_HEIGHT + 0.00001
 
-func simulate(delta: float, steer: float) -> void:
+func simulate(delta: float, steer: float, forward: float = 0.0) -> void:
  if mode == "dead":
   return
  touching_wall_side = 0
  for step in range(2):
-  integrate(delta * 0.5, steer)
+  integrate(delta * 0.5, steer, forward)
  high_speed = maxf(high_speed, velocity.length())
  visuals.visible = invincible <= 0 or fmod(invincible, 0.4) > 0.16
  update_visual_banking(delta)
@@ -190,7 +196,7 @@ func update_visual_banking(delta: float) -> void:
   visuals.rotation.z = lerpf(visuals.rotation.z, clampf(-velocity.x * 0.045, -0.45, 0.45), delta * 8)
   visuals.rotation.x = lerpf(visuals.rotation.x, 0.12, delta * 8)
 
-func integrate(dt: float, steer: float) -> void:
+func integrate(dt: float, steer: float, forward: float = 0.0) -> void:
  if mode == "dead":
   return
  invincible = maxf(0, invincible - dt)
@@ -198,8 +204,14 @@ func integrate(dt: float, steer: float) -> void:
   clear_obstacle_exceptions()
  double_jump_left = maxf(0, double_jump_left - dt)
  if mode == "ground":
-  velocity.z = 0
-  velocity.x = move_toward(velocity.x, steer * 4.5, 18 * dt)
+  # Forward walking uses the same top speed (4.5) as the existing left/
+  # right ground steer, normalized together so a diagonal (forward+strafe)
+  # input can't exceed that speed by moving sqrt(2)x faster.
+  var ground_input := Vector2(steer, -forward)
+  if ground_input.length() > 1.0:
+   ground_input = ground_input.normalized()
+  velocity.x = move_toward(velocity.x, ground_input.x * 4.5, 18 * dt)
+  velocity.z = move_toward(velocity.z, ground_input.y * 4.5, 18 * dt)
  elif mode == "slide":
   var horizontal := Vector3(velocity.x, 0, velocity.z)
   # Steering rotates momentum; it does not add or remove speed. Duration alone ends the slide.
@@ -207,10 +219,19 @@ func integrate(dt: float, steer: float) -> void:
   velocity.x = direction.x * horizontal.length()
   velocity.z = direction.z * horizontal.length()
   slide_left = maxf(0, slide_left - dt)
-  if slide_left <= 0:
+  # Charge drains in lockstep with slide_left (both fall to 0 together,
+  # since slide_left was initialized as skate_charge * max_duration above).
+  skate_charge = maxf(0, skate_charge - dt / Rules.SKATE_MAX_DURATION[tiers.skates])
+  if slide_left <= 0 or skate_charge <= 0:
    stop_on_ground()
  else:
   velocity.x = move_toward(velocity.x, steer * 5, 3.5 * dt)
+ # Recharges any time the player isn't actively spending it sliding —
+ # regardless of ground/air/swing mode, and never reset by wire connect,
+ # jump, or landing (only actual slide usage drains it, only reset() to a
+ # fresh run sets it back to full).
+ if mode != "slide" and tiers.skates > 0 and skate_charge < 1.0:
+  skate_charge = minf(1.0, skate_charge + dt / Rules.SKATE_RECHARGE_DURATION[tiers.skates])
  velocity.y -= Rules.GRAVITY * dt
  if is_instance_valid(anchor):
   hook_left -= dt
@@ -260,7 +281,16 @@ func integrate(dt: float, steer: float) -> void:
     touching_wall_side = signi(normal.x)
    velocity = velocity.slide(normal) * 0.85
   motion = hit.get_remainder().slide(normal)
- if mode in ["ground", "slide"] and not touched_floor and velocity.y < -0.5:
+ # Was -0.5, which (at ~20 m/s^2 gravity, two 1/120s substeps per real
+ # frame) let the player visibly run/walk/slide a beat or two past a ledge
+ # in mid-air before mode actually flipped to "air" — most noticeable
+ # since forward walking was added, since it's now easy to jog straight off
+ # a rooftop edge instead of only ever strafing near one. -0.2 is still
+ # safely above the ~0.1667 a single resting substep's own gravity
+ # accumulation can transiently reach before that substep's own floor
+ # collision zeroes it back out (so standing/walking on solid ground still
+ # never false-triggers this), but closes most of that visible gap.
+ if mode in ["ground", "slide"] and not touched_floor and velocity.y < -0.2:
   mode = "air"
  if position.y < -8:
   hurt("MISSED THE ROAD")
@@ -274,13 +304,16 @@ func land(incoming: Vector3) -> void:
  if not landing_safe():
   die("HIGH RELEASE LANDING — player released above 5m")
   return
- var can_slide: bool = fresh_landing_hook and not jump_exempt and tiers.skates > 0
+ var can_slide: bool = fresh_landing_hook and not jump_exempt and tiers.skates > 0 and skate_charge > 0
  fresh_landing_hook = false
  jump_exempt = false
  if can_slide and Vector2(incoming.x, incoming.z).length() > Rules.STOP_SPEED:
   velocity = Vector3(incoming.x, 0, incoming.z)
   mode = "slide"
-  slide_left = Rules.SLIDE_SECONDS[tiers.skates]
+  # Uses whatever charge is currently available, scaled to this tier's max
+  # duration — not always a full reset. A slide right after a previous one
+  # only gets whatever's recharged back since then.
+  slide_left = skate_charge * Rules.SKATE_MAX_DURATION[tiers.skates]
   slides += 1
   notice.emit("SKATING — timed slide; reconnect before landing again")
   slid.emit()

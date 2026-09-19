@@ -68,7 +68,11 @@ const CHARACTERS: Dictionary = {
 
 ## Priority order (highest first) used when more than one condition applies
 ## at once, e.g. dead always wins even mid-swing.
-const STATES: Array[String] = ["dead", "slide_hold", "slide", "swing_hold", "swinging", "start_swinging", "jump", "falling", "landing", "running", "idle"]
+const STATES: Array[String] = ["dead", "slide_hold", "slide", "swing_hold", "swinging", "start_swinging", "jump", "falling", "landing", "walking", "left_strafe_walk", "right_strafe_walk", "idle"]
+## Below this horizontal ground speed, pick_state() treats the character as
+## stopped (idle) rather than picking a walk/strafe direction — same
+## threshold the old running/idle split already used.
+const GROUND_MOVE_MIN_SPEED: float = 0.5
 const LANDING_DURATION: float = 0.5
 ## Below this tangential (rope-perpendicular) speed, the swing-facing
 ## rotation just holds its last valid orientation instead of chasing a
@@ -82,6 +86,18 @@ const SLIDE_FACING_MIN_SPEED: float = 0.3
 ## How fast the visual orientation chases the target swing orientation
 ## (higher = snappier). Framerate-independent via 1 - exp(-k*delta).
 const SWING_ROTATION_RATE: float = 10.0
+## Caps how long the "jump" pose (Running Jump.fbx — a running stride by
+## its own nature, since it's a *running* jump) can show, regardless of how
+## long velocity.y keeps rising past the old bare 0.5 threshold on its own.
+## A plain ground jump decays under that threshold in ~0.5s anyway, but a
+## wire release with real upward velocity (e.g. off the bottom of a swing
+## arc) can keep climbing for well over a second — during which "jump"
+## (reading as a running stride) kept playing the whole time, covering a
+## lot of ground/height while looking like the character was still
+## running, not jumping/rising. Capped to a single "push off the ground"
+## beat instead; "falling" (a clearly airborne pose) takes over for the
+## rest of the ascent even while velocity.y is still positive.
+const JUMP_POSE_MAX_DURATION: float = 0.45
 ## Extra downward visual shift applied on top of the normal standing
 ## y_offset while sliding. Measured directly (not eyeballed): with only the
 ## standing offset applied, the slide pose's lowest bone (the toe) sat at
@@ -100,6 +116,11 @@ var playback: AnimationNodeStateMachinePlayback
 var current_state: String = "idle"
 var _landing_timer: float = 0.0
 var _was_airborne: bool = false
+## Counts down while rising in "air" mode (see JUMP_POSE_MAX_DURATION);
+## "jump" is only picked while this is still > 0, "falling" otherwise, even
+## if velocity.y is still above the old bare threshold on its own.
+var _jump_pose_timer: float = 0.0
+var _was_rising_air: bool = false
 ## Sequences the one-shot wire-grab clips: "" (not on a wire) ->
 ## "start_swinging" -> "swinging" -> "hold" (frozen pose, stays until release).
 var _swing_phase: String = ""
@@ -120,6 +141,11 @@ var _slide_phase_timer: float = 0.0
 var _slide_duration: float = 0.0
 var _base_y_offset: float = 0.0
 var _slide_visual_offset: float = 0.0
+## Armor "active" outline meshes (see build_armor_outline()); hidden by
+## default, shown/hidden each frame based on rider.armor_charges alone.
+var _outline_meshes: Array[MeshInstance3D] = []
+var _outline_visible: bool = false
+static var _outline_material: ShaderMaterial
 
 func setup(character_id: String) -> void:
 	var config: Dictionary = CHARACTERS[character_id]
@@ -132,6 +158,7 @@ func setup(character_id: String) -> void:
 	_model = model
 	_model_base_basis = model.transform.basis
 	hide_duplicate_toon_shells(model)
+	build_armor_outline(model)
 	var skeleton: Skeleton3D = find_skeleton(model)
 	# WireGrip reference points: the drawn wire line's visual start is the
 	# midpoint of these two, tracked automatically every frame by Godot's own
@@ -180,6 +207,58 @@ func hide_duplicate_toon_shells(node: Node) -> void:
 				node.visible = false
 	for child in node.get_children():
 		hide_duplicate_toon_shells(child)
+
+## Cached across every character instance (and every character model) — one
+## shared inverted-hull outline shader, cheap to reuse since only its
+## uniforms (none per-instance here) would ever differ.
+func armor_outline_material() -> ShaderMaterial:
+	if _outline_material != null:
+		return _outline_material
+	var shader := Shader.new()
+	# Classic "inverted hull" outline: a second copy of the mesh, pushed out
+	# along its own normals in the vertex stage (post-skinning, since VERTEX/
+	# NORMAL here are already in the animated pose — Godot applies skin
+	# before running vertex()), with only its back faces kept (cull_front)
+	# so it forms a rim around the real mesh instead of covering it. Works
+	# on GL Compatibility (this project's renderer) since it's a plain
+	# spatial vertex/fragment shader, not a Forward+-only feature.
+	shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_front, depth_draw_always;
+uniform float outline_width : hint_range(0.0, 0.1) = 0.012;
+uniform vec4 outline_color : source_color = vec4(1.0, 0.82, 0.12, 1.0);
+void vertex() {
+	VERTEX += NORMAL * outline_width;
+}
+void fragment() {
+	ALBEDO = outline_color.rgb;
+	ALPHA = outline_color.a;
+}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	_outline_material = mat
+	return _outline_material
+
+## Builds one hidden outline duplicate per visible mesh under `node`
+## (skipping the hidden Toon shells), each sharing the source mesh's
+## geometry and (for skinned meshes) the same skin/skeleton binding so it
+## animates identically to the real model. Never touches the source meshes
+## themselves.
+func build_armor_outline(node: Node) -> void:
+	if node is MeshInstance3D and node.mesh != null and node.visible:
+		var outline := MeshInstance3D.new()
+		outline.mesh = node.mesh
+		outline.skeleton = node.skeleton
+		outline.skin = node.skin
+		outline.transform = node.transform
+		outline.material_override = armor_outline_material()
+		outline.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		outline.visible = false
+		node.get_parent().add_child(outline)
+		_outline_meshes.append(outline)
+	for child in node.get_children():
+		build_armor_outline(child)
 
 func find_skeleton(node: Node) -> Skeleton3D:
 	if node is Skeleton3D:
@@ -234,6 +313,25 @@ func get_wire_grip_position() -> Vector3:
 		return (_left_hand_grip.global_position + _right_hand_grip.global_position) * 0.5
 	return global_position
 
+## Forensic-only: this should structurally never fire (see the call site in
+## _process() below), but a wide simulated stress test (long jumps, double
+## jumps, swing apex/release, long falls, armor-hit invincible falls — 980
+## frames, zero repro) couldn't reproduce a real report of it happening in
+## actual play, so this writes a full snapshot to user://animation_debug.log
+## (same folder as records.cfg/settings.cfg) the moment it ever does, rather
+## than guessing further. Safe to delete this function and its one call site
+## once the real cause is confirmed fixed.
+func log_air_pose_violation(state: String) -> void:
+	var f := FileAccess.open("user://animation_debug.log", FileAccess.READ_WRITE if FileAccess.file_exists("user://animation_debug.log") else FileAccess.WRITE)
+	if f == null:
+		return
+	f.seek_end()
+	f.store_line("[%.3f] AIR_POSE_VIOLATION state=%s mode=%s velocity=%s position=%s swing_phase=%s slide_phase=%s landing_timer=%.3f anchor_valid=%s hook_connected=%s" % [
+		Time.get_ticks_msec() / 1000.0, state, rider.mode, rider.velocity, rider.position,
+		_swing_phase, _slide_phase, _landing_timer, is_instance_valid(rider.anchor), rider.hook_connected,
+	])
+	f.close()
+
 func _process(delta: float) -> void:
 	if rider == null or playback == null:
 		return
@@ -243,6 +341,17 @@ func _process(delta: float) -> void:
 	if _was_airborne and not airborne and rider.mode == "ground":
 		_landing_timer = LANDING_DURATION
 	_was_airborne = airborne
+	# See JUMP_POSE_MAX_DURATION: resets to a fresh beat only when a rise
+	# freshly begins (mode just became "air" while still not rising, or
+	# velocity.y just went positive again — e.g. a double jump fired mid-
+	# fall), and otherwise just counts down regardless of how long the
+	# actual rise continues.
+	var rising_air: bool = rider.mode == "air" and rider.velocity.y > 0.5
+	if rising_air and not _was_rising_air:
+		_jump_pose_timer = JUMP_POSE_MAX_DURATION
+	elif _jump_pose_timer > 0:
+		_jump_pose_timer = maxf(0, _jump_pose_timer - delta)
+	_was_rising_air = rising_air
 	# The wire-grab sequence is keyed off the anchor object itself, not
 	# rider.mode: a fresh anchor exists the instant the wire is fired (from
 	# fire_manual's own Node3D.new()), well before hook_left counts down and
@@ -285,6 +394,17 @@ func _process(delta: float) -> void:
 	if target_state != current_state:
 		current_state = target_state
 		playback.travel(target_state)
+		if rider.mode == "air" and target_state in ["walking", "left_strafe_walk", "right_strafe_walk", "idle"]:
+			log_air_pose_violation(target_state)
+	# Armor active/inactive reads straight off the owned charge count — not
+	# the brief post-hit invincibility window — so it stays on the whole
+	# time armor is held in reserve and turns off the instant a hit spends
+	# the last charge, matching Rider.upgrade("armor")/hurt()'s own timing.
+	var armored: bool = rider.armor_charges > 0
+	if armored != _outline_visible:
+		_outline_visible = armored
+		for mesh in _outline_meshes:
+			mesh.visible = armored
 
 func pick_state() -> String:
 	if rider.mode == "dead":
@@ -293,12 +413,32 @@ func pick_state() -> String:
 		return "slide_hold" if _slide_phase == "hold" else "slide"
 	if _swing_phase != "":
 		return "swing_hold" if _swing_phase == "hold" else _swing_phase
+	# Airborne always resolves to jump/falling here, before any ground-
+	# movement branch below is even reached — this is what keeps a
+	# ground-movement pose (walking/strafing) from ever flashing between an
+	# airborne state and falling (e.g. right after a wire release, at a
+	# jump's apex, or between a double jump and the fall that follows): as
+	# long as rider.mode == "air", this return is always hit first.
 	if rider.mode == "air":
-		return "jump" if rider.velocity.y > 0.5 else "falling"
+		return "jump" if rider.velocity.y > 0.5 and _jump_pose_timer > 0 else "falling"
 	if _landing_timer > 0:
 		return "landing"
-	var horizontal_speed: float = Vector2(rider.velocity.x, rider.velocity.z).length()
-	return "running" if horizontal_speed > 0.5 else "idle"
+	return pick_ground_move_state()
+
+## Ground-only (rider.mode not "air"/"swing"/"slide"/"dead", and not still in
+## the post-landing roll): forward walking and left/right strafing are
+## distinct clips instead of one omnidirectional "running" pose, using
+## whichever axis (forward vs strafe) currently dominates the horizontal
+## velocity Rider's own ground movement already produces (see rider.gd's
+## "ground" branch in integrate() — same top speed either way, so this is
+## purely about which clip reads as most correct, not a speed decision).
+func pick_ground_move_state() -> String:
+	var horizontal := Vector2(rider.velocity.x, rider.velocity.z)
+	if horizontal.length() <= GROUND_MOVE_MIN_SPEED:
+		return "idle"
+	if absf(horizontal.y) >= absf(horizontal.x):
+		return "walking"
+	return "right_strafe_walk" if horizontal.x > 0 else "left_strafe_walk"
 
 ## Picks which visual-rotation mode applies to the model (never Rider
 ## itself, never CollisionShape) this frame. Swing and slide are mutually

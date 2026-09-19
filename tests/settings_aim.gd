@@ -37,20 +37,18 @@ func run() -> void:
  preferences.window_size = Vector2i(1920, 1080)
  preferences.fullscreen = true
  preferences.sfx_volume = 0.4
- preferences.graphics_style = "realistic"
 
  var temporary: String = "user://settings-test-%d.cfg" % OS.get_process_id()
  check(preferences.save_file(temporary) == OK, "settings save to a separate configuration file")
  var loaded = Preferences.new()
- check(loaded.load_file(temporary) == OK and loaded.language == "en" and loaded.window_size == Vector2i(1920, 1080) and loaded.fullscreen and absf(loaded.sfx_volume - 0.4) < 0.001 and loaded.graphics_style == "realistic", "display and audio preferences survive a fresh settings instance")
+ check(loaded.load_file(temporary) == OK and loaded.language == "en" and loaded.window_size == Vector2i(1920, 1080) and loaded.fullscreen and absf(loaded.sfx_volume - 0.4) < 0.001, "display and audio preferences survive a fresh settings instance")
  var corrupt := ConfigFile.new()
  corrupt.set_value("interface", "language", "invalid")
  corrupt.set_value("controls", "aim_mode", "invalid")
  corrupt.set_value("display", "window_size", Vector2i(999, 999))
- corrupt.set_value("display", "graphics_style", "invalid")
  corrupt.save(temporary)
  loaded.load_file(temporary)
- check(loaded.language == "ko" and loaded.window_size == Vector2i(1280, 720) and loaded.graphics_style == "lowpoly", "invalid saved options fall back to supported values")
+ check(loaded.language == "ko" and loaded.window_size == Vector2i(1280, 720), "invalid saved options fall back to supported values")
  DirAccess.remove_absolute(temporary)
  var locale = Locale.new()
  check(locale.FONT.has_char("한".unicode_at(0)), "bundled font contains Korean glyphs")

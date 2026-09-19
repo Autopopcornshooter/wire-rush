@@ -155,11 +155,16 @@ func run() -> void:
  await camera_frames(Vector2(660, 355), 30)
  check(game.camera_pan.length() < 0.001, "small central mouse movements stay inside the camera dead zone")
  await fixture()
- game.rider.position = Vector3(0, 24, -8)
  for i in range(3):
   game.rider.upgrade("high")
+ # Building Height is next-chunk-only: the fixture's own starting chunk (0)
+ # never grows retroactively, so a newly created chunk is what actually has
+ # the raised wall to aim at here.
+ game.city.create_chunk(5)
+ var tall_chunk: Node3D = game.city.chunks[5]
+ game.rider.position = Vector3(0, 24, tall_chunk.position.z - 8)
  await camera_frames(Vector2(640, 0), 90)
- var upper := Vector3(-7.4, 44, -12)
+ var upper := Vector3(-7.4, 44, tall_chunk.position.z - 12)
  var upper_pixel: Vector2 = game.camera.unproject_position(upper)
  check(Rect2(0, 0, 1280, 720).has_point(upper_pixel), "upper building target becomes visible with upward mouse view")
  var target: Dictionary = game.city.manual_target(game.rider.position, game.camera.project_ray_origin(upper_pixel), game.camera.project_ray_normal(upper_pixel), game.rider.reach(), game.rider.get_rid())

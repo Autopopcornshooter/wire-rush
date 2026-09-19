@@ -92,8 +92,9 @@ func run() -> void:
   if child is AnimationPlayer:
    player = child
  check(player != null, "an AnimationPlayer with the retargeted library exists")
- var expected_states: Array[String] = ["idle", "running", "jump", "falling", "start_swinging", "swinging", "swing_hold", "slide", "slide_hold", "landing", "dead"]
+ var expected_states: Array[String] = ["idle", "walking", "left_strafe_walk", "right_strafe_walk", "jump", "falling", "start_swinging", "swinging", "swing_hold", "slide", "slide_hold", "landing", "dead"]
  check(not player.has_animation("throw"), "throw.fbx is no longer used for the wire flow")
+ check(not player.has_animation("running"), "running.fbx/the 'running' state is no longer used — ground movement is walking/strafing only")
  for state in expected_states:
   check(player.has_animation(state), "retargeted clip exists for state '%s'" % state)
   var anim: Animation = player.get_animation(state)
@@ -118,12 +119,38 @@ func run() -> void:
 
  game.rider.velocity = Vector3(0, 0, -8)
  visual._process(0.016)
- check(visual.current_state == "running", "moving on the ground selects running")
+ check(visual.current_state == "walking", "moving forward on the ground selects walking")
 
+ game.rider.velocity = Vector3(3, 0, 0)
+ visual._process(0.016)
+ check(visual.current_state == "right_strafe_walk", "strafing right on the ground selects right_strafe_walk")
+
+ game.rider.velocity = Vector3(-3, 0, 0)
+ visual._process(0.016)
+ check(visual.current_state == "left_strafe_walk", "strafing left on the ground selects left_strafe_walk")
+
+ # Regression for the "Running pose flashes between airborne states" bug:
+ # a ground-movement velocity left over from just before going airborne
+ # (e.g. the instant a wire releases, or a double jump fired while already
+ # moving) must never itself read as walking/strafing/running once
+ # rider.mode is actually "air" — pick_state() must resolve air states
+ # before it ever reaches the ground-movement branch.
  game.rider.mode = "air"
+ game.rider.velocity = Vector3(3, -6, -8)
+ visual._process(0.016)
+ check(visual.current_state == "falling", "a ground-movement-shaped velocity while airborne still selects falling, never walking/strafing/running")
+
  game.rider.velocity = Vector3(0, 6, 0)
  visual._process(0.016)
  check(visual.current_state == "jump", "rising in the air selects jump")
+ # JUMP_POSE_MAX_DURATION regression: velocity.y stays well above the bare
+ # 0.5 threshold for this entire loop (nothing here touches rider.velocity),
+ # simulating a high-velocity wire release that keeps rising for longer
+ # than a plain ground jump would. The running-stride "jump" pose must not
+ # keep playing the whole time regardless.
+ for i in range(40):
+  visual._process(0.016)
+ check(visual.current_state == "falling" and game.rider.velocity.y > 0.5, "a long rise (velocity.y still > 0.5 throughout) still falls back to falling after JUMP_POSE_MAX_DURATION, not stuck on jump the whole time")
 
  game.rider.velocity = Vector3(0, -6, 0)
  visual._process(0.016)
@@ -254,6 +281,17 @@ func run() -> void:
  check(visual.current_state != "slide" and visual.current_state != "slide_hold", "ending the slide leaves slide/slide_hold for a normal ground state")
  visual._process(1.0)
  check(is_equal_approx(visual._model.position.y, y_before_slide), "the visual Y offset returns to the normal standing height after the slide ends")
+
+ # Armor outline: purely a function of the owned charge count, not the
+ # brief post-hit invincibility window, and off by default.
+ check(visual._outline_meshes.size() > 0, "the character has at least one armor outline mesh built")
+ check(visual._outline_meshes.all(func(m): return not m.visible), "armor outline starts hidden with no armor charges")
+ game.rider.armor_charges = 2
+ visual._process(0.016)
+ check(visual._outline_meshes.all(func(m): return m.visible), "gaining an armor charge turns the outline on")
+ game.rider.armor_charges = 0
+ visual._process(0.016)
+ check(visual._outline_meshes.all(func(m): return not m.visible), "spending the last armor charge turns the outline off immediately")
 
  game.rider.mode = "dead"
  visual._process(0.016)
