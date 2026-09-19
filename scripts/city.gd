@@ -1,7 +1,18 @@
 extends Node3D
 const Rules = preload("res://scripts/rules.gd")
 const Locale = preload("res://scripts/localization.gd")
+const DifficultyDirector = preload("res://scripts/difficulty_director.gd")
 const LENGTH: float = 64.0
+## Traversability Guard (PHASE B): the largest 3D distance any two
+## consecutive wire-attachable points this generator places are allowed to
+## end up, measured against the *base* (no Wire Length upgrade) wire reach
+## (Rules.ROPE_RANGE = 30) with a safety margin — a route must never require
+## an upgrade to be physically possible. Not a runtime rejection/backtrack
+## system (this generator is simple enough that its placement formulas are
+## themselves designed to respect this bound — see create_chunk()'s hazard
+## vertical placement); tests/difficulty.gd verifies real generated geometry
+## against it directly.
+const MAX_BASE_TRAVERSAL_GAP: float = 26.0
 ## World-only marking for the early "can't die from a missed wire" stretch
 ## (see Rider.landing_safe()/SAFE_RELEASE_HEIGHT — the actual survival rule
 ## itself is untouched here; this is purely a visual cue). Evaluated once
@@ -13,20 +24,6 @@ const SAFE_ZONE_DISTANCE: float = 500.0
 ## beacon — matches the game's existing cyan accent (e.g. the lane-edge
 ## strips) rather than introducing a new color.
 const SAFE_ZONE_COLOR := Color("3fa89c")
-## Past this distance, a recurring short span of chunks (see
-## is_no_building_chunk()) drops both playable building walls, leaving only
-## the police-drone aerial obstacles to swing between — a harder, different
-## traversal pattern than the usual building-lined road. Not the whole rest
-## of the run: only NO_BUILDING_SECTION_CHUNKS out of every
-## NO_BUILDING_SECTION_PERIOD_CHUNKS chunks are building-free.
-const NO_BUILDING_SECTION_START_DISTANCE: float = 2000.0
-## 3 chunks = 192m building-free, comfortably inside the base 30m wire
-## range's worth of consecutive hazard-to-hazard hops (hazards spawn every
-## ~64m of chunk regardless of building presence, well under 30m apart at
-## their closest, so a 192m span never requires a jump longer than the
-## normal hazard spacing already used everywhere else).
-const NO_BUILDING_SECTION_CHUNKS: int = 3
-const NO_BUILDING_SECTION_PERIOD_CHUNKS: int = 10
 ## Realistic building models: Downtown City MegaKit by Quaternius (CC0) — see THIRD_PARTY_NOTICES.md.
 const BUILDING_MODELS: Array[PackedScene] = [
  preload("res://assets/citykit/Building_Small_1.gltf"),
@@ -68,11 +65,6 @@ const CAR_TARGET_LENGTH: Array[float] = [5.52, 5.04, 6.0, 4.68, 4.8]
 ## x=±6.8) and clear of it so a car never visually crosses into the other
 ## lane.
 const CAR_LANE_OFFSET: float = 3.4
-## Scales up the gap between consecutive cars in the same lane (on top of
-## the base 2-5m cluster variation) to cut overall traffic density to
-## roughly a third of the original spacing, without changing the explicit
-## 10-20m empty-stretch width itself.
-const CAR_SPAWN_GAP_SCALE: float = 5.0
 ## Deliberately slow — "차가 고속 장애물처럼 느껴지면 안 된다" — city-street
 ## crawl, not traffic the player needs to dodge like the aerial obstacles.
 const CAR_SPEED: float = 4.0
@@ -153,7 +145,19 @@ func box(parent: Node3D, pos: Vector3, size: Vector3, color: Color, solid: bool 
   root.add_child(collision)
  return root
 
+## Real gameplay's only entry point into the Difficulty Director: `distance`
+## here is Main.distance (origin-shift-independent total distance — see
+## Rules.progress()), so tiers/events never reset after City.rebase(). This
+## sets `high_level` for whichever chunks get created *by this same call*,
+## exactly like a player picking the old Building Height upgrade used to —
+## already-existing chunks read `high_level` once, at their own creation
+## time, and are never touched again (see apply_height_level()).
+## Deliberately NOT called from create_chunk() itself: tests construct
+## specific world states by calling create_chunk() directly after manually
+## setting high_level/practice/etc, and must keep doing exactly that without
+## this automatic distance-driven overwrite getting in the way.
 func update_chunks(distance: float, attached: Node3D = null, extra_anchors: Array[Node3D] = []) -> void:
+ apply_height_level(DifficultyDirector.get_city_difficulty(distance).building_height_level)
  var current: int = floori(distance / LENGTH)
  for index in range(maxi(0, current - 1), current + 6):
   if not chunks.has(index):
@@ -261,8 +265,12 @@ func create_chunk(index: int) -> void:
    building.add_child(foundation)
  for stripe in range(8):
   box(chunk, Vector3(0, 0.025, -stripe * 8 - 4), Vector3(0.08, 0.035, 3), Color("45627a"))
- if not practice:
-  spawn_vehicles(chunk, index)
+ var event: String = event_for_chunk(index)
+ # SKY GAP is a "no vehicles" event by definition (PHASE B spec section 13);
+ # TRAFFIC SURGE instead raises density on an otherwise-normal chunk.
+ if not practice and event != DifficultyDirector.EVENT_SKY_GAP:
+  var gap_scale: float = DifficultyDirector.TRAFFIC_SURGE_VEHICLE_GAP_SCALE if event == DifficultyDirector.EVENT_TRAFFIC_SURGE else DifficultyDirector.get_city_difficulty(index * LENGTH).vehicle_gap_scale
+  spawn_vehicles(chunk, index, gap_scale)
  if kind > 0:
   # Compact hazards spread sideways and vertically instead of a full-width
   # wall. Count and vertical spread both scale with the CURRENT high_level
@@ -272,21 +280,41 @@ func create_chunk(index: int) -> void:
   # usable vertical space, so more obstacles are spread across the *entire*
   # low-to-high range rather than the same fixed 4 positions just sliding
   # upward as one block (that used to leave the lower band empty).
-  var hazard_count: int = 4 + high_level
+  var hazard_count: int = 4 + high_level + DifficultyDirector.get_city_difficulty(index * LENGTH).aerial_obstacle_count_bonus
   var min_hazard_y: float = 6.0
   var max_hazard_y: float = 24.0 + Rules.BUILDING_BONUS[high_level] * 0.85
   # Same 3-obstacle Z span (42m) regardless of count, so more obstacles
   # just pack the existing depth tighter instead of spilling past this
   # chunk's own 64m into the next one's hazard band.
   var z_step: float = 42.0 / maxf(1.0, float(hazard_count - 1))
-  # `kind` (1..5) phase-shifts the evenly-spaced heights so different chunks
-  # don't all repeat the exact same vertical pattern — same intent as the
-  # old fixed-list's posmod(i+kind, 4) rotation, adapted to a continuous
-  # spread.
-  var phase: float = fposmod(float(kind) * 0.23, 1.0)
+  # Traversability Guard (PHASE B): a symmetric triangle wave (rise from min
+  # up to max at the middle hazard, then back down to min at the last one)
+  # instead of a wrapping ramp. Two properties matter here:
+  #  1. It never wraps, so the largest possible step between two
+  #     CONSECUTIVE hazards *within* one chunk is bounded
+  #     ((max_hazard_y - min_hazard_y) / half_span) — the pre-PHASE-B
+  #     wrapping fposmod ramp instead inevitably completed a full cycle
+  #     somewhere across i=0..hazard_count-1, landing two consecutive
+  #     hazards at opposite ends of the full min/max range right where it
+  #     wrapped (up to ~44m at the highest Building Height tier).
+  #  2. It always starts AND ends at min_hazard_y (t=0 at i=0 and at
+  #     i=hazard_count-1), so the hazard-to-hazard gap *across* a chunk
+  #     boundary is also bounded regardless of what the next chunk's own
+  #     hazard_count/high_level happen to be — both boundary hazards sit at
+  #     the same low band instead of two independently-phased chunks
+  #     potentially landing at opposite height extremes right at the seam.
+  # Combined with the fixed 42m z-span (so the gap between a chunk's last
+  # hazard and the next chunk's first is always LENGTH-42=22m in Z) and the
+  # +-3.7/0 lateral spread, every consecutive pair — inside a chunk or across
+  # one — stays comfortably inside MAX_BASE_TRAVERSAL_GAP (see
+  # tests/difficulty.gd for the real-geometry check across a full Sky Gap
+  # span). `kind` no longer shifts the peak position (that would let the
+  # peak land close to an edge, steepening the slope right where two chunks
+  # meet) — chunks still read as varied via the independent X cycling below.
+  var half_span: float = maxf(1.0, float(hazard_count - 1) * 0.5)
   for i in range(hazard_count):
    var x: float = [-3.7, 0.0, 3.7][posmod(index + i, 3)]
-   var t: float = fposmod(float(i) / maxf(1.0, float(hazard_count - 1)) + phase, 1.0)
+   var t: float = 1.0 - absf(float(i) - half_span) / half_span
    var y: float = lerpf(min_hazard_y, max_hazard_y, t)
    obstacle(chunk, Vector3(x, y, -10 - i * z_step), Vector3(2.6, 2.2, 1.4))
 
@@ -420,7 +448,7 @@ func start_height() -> float:
 func has_building(index: int, slot: int, side: int) -> bool:
  if practice or index < 2:
   return true
- if is_no_building_chunk(index):
+ if event_for_chunk(index) == DifficultyDirector.EVENT_SKY_GAP:
   return false
  # 128m alternating sections; the first 16m has both walls as a transition.
  var section: int = floori(float(index - 2) / 2)
@@ -428,18 +456,16 @@ func has_building(index: int, slot: int, side: int) -> bool:
   return true
  return side == (1 if section % 2 == 0 else -1)
 
-## Past NO_BUILDING_SECTION_START_DISTANCE, a short recurring span of chunks
-## drops both playable building walls entirely (obstacle/hazard spawning is
-## already independent of has_building(), so those keep appearing normally —
-## this alone is what turns it into an "obstacle-only swinging" section).
-## Not permanent past that distance: only NO_BUILDING_SECTION_CHUNKS out of
-## every NO_BUILDING_SECTION_PERIOD_CHUNKS chunks are building-free, so the
-## ordinary building-lined layout keeps returning between spans instead of
-## the whole rest of the run turning into one.
-func is_no_building_chunk(index: int) -> bool:
- if index * LENGTH < NO_BUILDING_SECTION_START_DISTANCE:
-  return false
- return posmod(index, NO_BUILDING_SECTION_PERIOD_CHUNKS) < NO_BUILDING_SECTION_CHUNKS
+## Which City Event (SKY_GAP/TRAFFIC_SURGE/NONE — see difficulty_director.gd)
+## this chunk belongs to, purely as a function of its own index. A SKY GAP
+## chunk drops both playable building walls entirely here (obstacle/hazard
+## spawning is already independent of has_building(), so those keep
+## appearing normally — this alone is what turns it into an "obstacle-only
+## swinging" section) and skips vehicle spawning (see create_chunk()). Not
+## permanent: only a short recurring span of chunks is ever an event, so the
+## ordinary building-lined/normal-traffic layout keeps returning between them.
+func event_for_chunk(index: int) -> String:
+ return DifficultyDirector.event_for_chunk(index)
 
 func resize_building(building: Node3D) -> void:
  var height: float = float(building.get_meta("base_height")) + Rules.BUILDING_BONUS[high_level]
@@ -493,8 +519,12 @@ func model_aabb(node: Node3D) -> AABB:
 ## right, oncoming on your left" laid out along this game's own -Z-forward
 ## convention. Density is deliberately uneven (clusters of cars close
 ## together, punctuated by an occasional larger gap) rather than an evenly
-## spaced conveyor belt.
-func spawn_vehicles(chunk: Node3D, index: int) -> void:
+## spaced conveyor belt. `gap_scale` is City Progression's own knob on this
+## same shape (see DifficultyDirector.get_city_difficulty()/
+## TRAFFIC_SURGE_VEHICLE_GAP_SCALE): lower means denser traffic, but the
+## occasional no-traffic stretch below always still happens regardless of
+## scale, so a surge is never "the whole road is cars".
+func spawn_vehicles(chunk: Node3D, index: int, gap_scale: float) -> void:
  for side in [-1, 1]:
   var dir_sign: float = -1.0 if side > 0 else 1.0
   var lane_x: float = side * CAR_LANE_OFFSET
@@ -511,11 +541,11 @@ func spawn_vehicles(chunk: Node3D, index: int) -> void:
    var model_index: int = posmod(seed, CAR_MODELS.size())
    spawn_vehicle(chunk, model_index, Vector3(lane_x, 0, z), dir_sign)
    # Gap to the next car in this same lane: always enough to keep them from
-   # spawning inside one another, and scaled up by CAR_SPAWN_GAP_SCALE
-   # (overall traffic density) on top of the base 2-5m variation, so cars
-   # can still end up close together in a loose cluster rather than
-   # uniformly spaced, just with fewer clusters overall.
-   var gap: float = (2.0 + float(posmod(seed, 4)) * 1.0) * CAR_SPAWN_GAP_SCALE
+   # spawning inside one another, and scaled by gap_scale (overall traffic
+   # density) on top of the base 2-5m variation, so cars can still end up
+   # close together in a loose cluster rather than uniformly spaced, just
+   # with fewer/more clusters depending on the current City tier or event.
+   var gap: float = (2.0 + float(posmod(seed, 4)) * 1.0) * gap_scale
    z -= CAR_TARGET_LENGTH[model_index] + gap
    slot += 1
 

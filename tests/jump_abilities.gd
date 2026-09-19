@@ -1,5 +1,6 @@
 extends SceneTree
 const Rules = preload("res://scripts/rules.gd")
+const DifficultyDirector = preload("res://scripts/difficulty_director.gd")
 var game: Node3D
 var checks: int = 0
 var failures: int = 0
@@ -46,7 +47,7 @@ func run() -> void:
  # Past 2000m (index 32 = 2048m), a recurring building-free span appears.
  await fixture()
  game.city.practice = false
- check(2048.0 >= game.city.NO_BUILDING_SECTION_START_DISTANCE, "fixture sanity: chunk 32 starts past the no-building threshold")
+ check(2048.0 >= DifficultyDirector.SKY_GAP_MIN_DISTANCE, "fixture sanity: chunk 32 starts past the Sky Gap threshold")
  game.city.create_chunk(32)
  var no_building_chunk: Array = game.city.chunks[32].get_children().filter(func(n: Node): return n.get_meta("building", false))
  var no_building_hazards: Array = game.city.chunks[32].get_children().filter(func(n: Node): return n.get_meta("hazard", false))

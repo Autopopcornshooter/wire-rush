@@ -15,6 +15,7 @@ function Invoke-Check([string]$Name, [string[]]$EngineArgs) {
 Invoke-Check 'import' @('--headless','--path',$projectRoot,'--editor','--import','--quit')
 Invoke-Check 'behavior' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/run.gd','--','--test')
 Invoke-Check 'upgrades' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/upgrades.gd','--','--test')
+Invoke-Check 'difficulty' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/difficulty.gd','--','--test')
 Invoke-Check 'traversal' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/traversal.gd','--','--test')
 Invoke-Check 'settings-aim' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/settings_aim.gd','--','--test')
 Invoke-Check 'range-obstacle' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/range_obstacle.gd','--','--test')
