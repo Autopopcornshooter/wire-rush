@@ -24,7 +24,13 @@ func _draw() -> void:
   draw_style_box(hover_style(), Rect2(0, 0, 320, 340))
  draw_badge()
  draw_icon()
- var label_text: String = hud.t(hud.Rules.UPGRADES[key][0])
+ var info: Dictionary = hud.Rules.UPGRADES[key]
+ # Category tag (WIRE/MOBILITY/MOMENTUM/SURVIVAL/CORE) — small label on the
+ # existing card, not a new UI element; see PHASE A spec section 17.
+ var category_text: String = hud.t(info.category)
+ var category_w: float = hud.font.get_string_size(category_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+ draw_string(hud.font, Vector2(160 - category_w * 0.5, 268), category_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, hud.muted)
+ var label_text: String = hud.t(info.name)
  var w: float = hud.font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
  draw_string(hud.font, Vector2(160 - w * 0.5, 300), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, hud.white)
 
@@ -43,24 +49,17 @@ func hover_style() -> StyleBoxFlat:
 
 func draw_icon() -> void:
  match key:
-  "skates":
-   draw_icon_tex(hud.icon_skate, 160, 130, hud.cyan)
-  "armor":
-   draw_icon_tex(hud.icon_shield, 160, 130, hud.cyan)
-  "high":
-   draw_icon_tex(hud.icon_city, 160, 130, hud.cyan)
   "range":
    draw_icon_tex(hud.icon_hook, 160, 110, hud.cyan)
    draw_range_arrow(160, 205)
-  "reel":
-   draw_icon_tex(hud.icon_reel, 160, 130, hud.cyan)
-  "hook":
-   draw_icon_tex(hud.icon_hook, 160, 130, hud.cyan)
-  "jump":
-   draw_icon_tex(hud.icon_jump, 160, 130, hud.cyan)
   "double_jump":
    draw_icon_tex(hud.icon_jump, 174, 142, Color(hud.gold, 0.35))
    draw_icon_tex(hud.icon_jump, 160, 130, hud.cyan)
+  _:
+   # Every other upgrade (including all new NORMAL ones) reuses one of the
+   # existing six icons via the same lookup the pause/result screens use —
+   # see Hud.upgrade_icon(). No new icon assets.
+   draw_icon_tex(hud.upgrade_icon(key), 160, 130, hud.cyan)
 
 func draw_icon_tex(tex: Texture2D, cx: float, cy: float, color: Color) -> void:
  var size := 130.0

@@ -13,7 +13,6 @@ var gold := Color("ffc876")
 ## Ability icons: derived from game-icons.net (Delapouite, CC BY 3.0) — see THIRD_PARTY_NOTICES.md.
 var icon_skate: Texture2D = preload("res://assets/icons/skate.svg")
 var icon_shield: Texture2D = preload("res://assets/icons/shield.svg")
-var icon_city: Texture2D = preload("res://assets/icons/city.svg")
 var icon_hook: Texture2D = preload("res://assets/icons/hook.svg")
 var icon_reel: Texture2D = preload("res://assets/icons/reel.svg")
 var icon_jump: Texture2D = preload("res://assets/icons/jump.svg")
@@ -197,10 +196,10 @@ func _draw() -> void:
  # Pure presentation: detect a level-up by watching the existing pending_upgrades
  # counter change, without touching how or when main.gd increments it.
  var now: float = Time.get_ticks_msec() / 1000.0
- if last_pending_upgrades >= 0 and game.pending_upgrades > last_pending_upgrades:
+ if last_pending_upgrades >= 0 and game.pending_upgrades.size() > last_pending_upgrades:
   levelup_trigger_time = now
   game.tone(880, 0.18)
- last_pending_upgrades = game.pending_upgrades
+ last_pending_upgrades = game.pending_upgrades.size()
  if game.phase == "settings":
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
   panel(Rect2(290, 119, 700, 424))
@@ -320,18 +319,32 @@ func draw_pause_key_box(rect: Rect2) -> void:
   label_at(Vector2(badge.position.x + PAUSE_KEY_BADGE_W + 8, y + 13), row[1], 11, muted)
   y += PAUSE_KEY_ROW_H
 
+## Every upgrade key reuses one of the existing six ability icons (no new
+## icon assets) — several keys deliberately share an icon; the tier dots and
+## card label are what distinguish them.
+func upgrade_icon(key: String) -> Texture2D:
+ match key:
+  "skates", "skate_recharge", "skate_efficiency":
+   return icon_skate
+  "armor", "collision_grace", "armor_support":
+   return icon_shield
+  "range", "hook", "attach_assist":
+   return icon_hook
+  "reel", "release_momentum":
+   return icon_reel
+  "jump", "air_control", "ground_control", "double_jump":
+   return icon_jump
+  _:
+   return icon_jump
+
 func draw_pause_upgrade_list(rect: Rect2, owned: Array) -> void:
  if owned.is_empty():
   return
  draw_style_box(style(Color(0.06, 0.1, 0.15, 0.85)), rect)
- var icon_map: Dictionary = {
-  "skates": icon_skate, "armor": icon_shield, "high": icon_city, "range": icon_hook,
-  "reel": icon_reel, "hook": icon_hook, "jump": icon_jump, "double_jump": icon_jump,
- }
  var cx: float = rect.position.x + rect.size.x * 0.5
  var y: float = rect.position.y + PAUSE_ICON_PAD
  for key in owned:
-  var tex: Texture2D = icon_map[key]
+  var tex: Texture2D = upgrade_icon(key)
   draw_texture_rect(tex, Rect2(cx - PAUSE_ICON_SIZE * 0.5, y, PAUSE_ICON_SIZE, PAUSE_ICON_SIZE), false, cyan)
   var tier: int = game.rider.tiers[key]
   var dot_gap: float = 10.0
@@ -356,10 +369,6 @@ func draw_result_abilities(y: float) -> void:
    owned.append(key)
  if owned.is_empty():
   return
- var icon_map: Dictionary = {
-  "skates": icon_skate, "high": icon_city, "range": icon_hook,
-  "reel": icon_reel, "hook": icon_hook, "jump": icon_jump, "double_jump": icon_jump,
- }
  var icon_size: float = 32.0
  var gap: float = 54.0
  var cx: float = 640.0
@@ -367,7 +376,7 @@ func draw_result_abilities(y: float) -> void:
  for i in range(owned.size()):
   var key: String = owned[i]
   var x: float = start_x + i * gap
-  draw_texture_rect(icon_map[key], Rect2(x - icon_size * 0.5, y, icon_size, icon_size), false, cyan)
+  draw_texture_rect(upgrade_icon(key), Rect2(x - icon_size * 0.5, y, icon_size, icon_size), false, cyan)
   var tier: int = game.rider.tiers[key]
   var dot_gap: float = 9.0
   var dot_start_x: float = x - (tier - 1) * dot_gap * 0.5
@@ -375,7 +384,7 @@ func draw_result_abilities(y: float) -> void:
    draw_circle(Vector2(dot_start_x + d * dot_gap, y + icon_size + 10), 2.5, cyan)
 
 func draw_upgrade_badge(now: float) -> void:
- if game.pending_upgrades <= 0:
+ if game.pending_upgrades.is_empty():
   return
  var pivot := Vector2(1176, 692)
  var since_bump: float = now - levelup_trigger_time
@@ -385,7 +394,10 @@ func draw_upgrade_badge(now: float) -> void:
  var pulse: float = 0.5 + 0.5 * sin(now * 2.4)
  var scale: float = 1.0 + 0.05 * pulse + 0.22 * bump
  var glow_alpha: float = 0.12 + 0.1 * pulse + 0.35 * bump
- var label_text: String = t("[G] UPGRADE") + " ×%d" % game.pending_upgrades
+ # Existing badge, just relabeled: flags a CORE choice at the front of the
+ # queue (still no new HUD element — same pill, same position).
+ var next_core: bool = game.pending_upgrades[0] == "CORE"
+ var label_text: String = (t("[G] CORE UPGRADE") if next_core else t("[G] UPGRADE")) + " ×%d" % game.pending_upgrades.size()
  var width: float = font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
  var box_size := Vector2(width + 36, 34)
  draw_set_transform(pivot, 0, Vector2(scale, scale))

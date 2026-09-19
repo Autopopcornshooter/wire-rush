@@ -29,7 +29,18 @@ var slide_left: float = 0
 var skate_charge: float = 1.0
 var ignored_obstacles: Array[PhysicsBody3D] = []
 var armor_charges: int = 0
-var tiers: Dictionary = {"skates": 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0, "double_jump": 0}
+var tiers: Dictionary = {
+ "skates": 0, "armor": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0, "double_jump": 0,
+ "attach_assist": 0, "air_control": 0, "ground_control": 0, "release_momentum": 0,
+ "skate_recharge": 0, "skate_efficiency": 0, "collision_grace": 0, "armor_support": 0,
+}
+## Set true the instant a double jump is spent, cleared by the first
+## fire_manual() afterward (successful or not) — see Rules.UPGRADES.double_jump
+## tier 3 and the SKY_RUNNER synergy, both of which spend this same flag.
+var just_double_jumped: bool = false
+## Re-evaluated by evaluate_synergies() after every upgrade() call and on
+## reset(). Not player-selectable — see PHASE A spec section 14/15.
+var active_synergies: Dictionary = {"slingshot": false, "street_surfer": false, "sky_runner": false}
 var practice: bool = false
 var visuals: Node3D
 var wire_mesh: MeshInstance3D
@@ -85,7 +96,11 @@ func reset(training: bool) -> void:
  mode = "air"
  position = Vector3(0, city.start_height(), 0)
  velocity = Vector3(0, -2, -12)
- tiers = {"skates": 1 if training else 0, "armor": 0, "high": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0, "double_jump": 0}
+ tiers = {
+  "skates": 1 if training else 0, "armor": 0, "range": 0, "reel": 0, "hook": 0, "jump": 0, "double_jump": 0,
+  "attach_assist": 0, "air_control": 0, "ground_control": 0, "release_momentum": 0,
+  "skate_recharge": 0, "skate_efficiency": 0, "collision_grace": 0, "armor_support": 0,
+ }
  armor_charges = 0
  invincible = 0
  last_release_height = 0
@@ -97,9 +112,18 @@ func reset(training: bool) -> void:
  skate_charge = 1.0
  slides = 0
  high_speed = 0
+ just_double_jumped = false
+ evaluate_synergies()
 
 func reach() -> float:
  return Rules.ROPE_RANGE * (1.0 + tiers.range * 0.1)
+
+## Small widening of City.range_limited_target()'s existing "RANGE ASSIST"
+## tolerance — see Rules.UPGRADES.attach_assist. Only main.gd's player-facing
+## manual_target() calls pass this; tests and validation scripts that omit it
+## keep the original 0.08m tolerance untouched.
+func aim_slack() -> float:
+ return 0.08 + tiers.attach_assist * 0.04
 
 func fire_manual(selection: Dictionary, side: int) -> bool:
  if mode == "dead":
@@ -118,6 +142,13 @@ func fire_manual(selection: Dictionary, side: int) -> bool:
  anchor = point
  wire_side = side
  hook_duration = global_position.distance_to(point.global_position) / (Rules.HOOK_SPEED * (1.0 + tiers.hook * 0.2))
+ # Double Jump tier 3 (and, more so, the SKY_RUNNER synergy) rewards the
+ # very next wire connection after a double jump with a faster hook flight.
+ # Consumed once per double jump, win or lose — see Rules.UPGRADES.double_jump
+ # and PHASE A spec section 14 (SKY_RUNNER).
+ if just_double_jumped and tiers.double_jump >= 3:
+  hook_duration *= 0.7 if active_synergies.sky_runner else 0.85
+ just_double_jumped = false
  hook_left = hook_duration
  hook_connected = false
  notice.emit("MANUAL HOOK FIRED — position locked until the next shot")
@@ -127,6 +158,16 @@ func release_wire() -> void:
  if is_instance_valid(anchor):
   if hook_connected:
    last_release_height = global_position.y
+   if mode == "swing":
+    # Release Momentum (small, tier-scaled) plus SLINGSHOT (Reel Speed +
+    # Wire Length synergy, only above a real swinging speed) — both are
+    # gentle multipliers on the velocity the physics already produced, never
+    # an added force, so they can't destabilize the underlying wire physics.
+    # See Rules.UPGRADES.release_momentum and PHASE A spec section 14.
+    var momentum_bonus: float = 1.0 + tiers.release_momentum * 0.02
+    if active_synergies.slingshot and velocity.length() > 15.0:
+     momentum_bonus *= 1.05
+    velocity *= momentum_bonus
   anchor.queue_free()
  anchor = null
  wire_side = 0
@@ -160,6 +201,7 @@ func jump() -> void:
   velocity.y = Rules.JUMP_SPEED * sqrt(1.0 + tiers.jump * 0.1)
   jump_exempt = true
   double_jump_left = Rules.DOUBLE_JUMP_COOLDOWN[tiers.double_jump - 1]
+  just_double_jumped = true
   notice.emit("DOUBLE JUMP")
 
 func landing_height() -> float:
@@ -206,12 +248,15 @@ func integrate(dt: float, steer: float, forward: float = 0.0) -> void:
  if mode == "ground":
   # Forward walking uses the same top speed (4.5) as the existing left/
   # right ground steer, normalized together so a diagonal (forward+strafe)
-  # input can't exceed that speed by moving sqrt(2)x faster.
+  # input can't exceed that speed by moving sqrt(2)x faster. Ground Control
+  # (Rules.UPGRADES.ground_control) scales both speed and response together.
+  var ground_speed: float = 4.5 * (1.0 + tiers.ground_control * 0.08)
+  var ground_accel: float = 18.0 * (1.0 + tiers.ground_control * 0.08)
   var ground_input := Vector2(steer, -forward)
   if ground_input.length() > 1.0:
    ground_input = ground_input.normalized()
-  velocity.x = move_toward(velocity.x, ground_input.x * 4.5, 18 * dt)
-  velocity.z = move_toward(velocity.z, ground_input.y * 4.5, 18 * dt)
+  velocity.x = move_toward(velocity.x, ground_input.x * ground_speed, ground_accel * dt)
+  velocity.z = move_toward(velocity.z, ground_input.y * ground_speed, ground_accel * dt)
  elif mode == "slide":
   var horizontal := Vector3(velocity.x, 0, velocity.z)
   # Steering rotates momentum; it does not add or remove speed. Duration alone ends the slide.
@@ -221,17 +266,29 @@ func integrate(dt: float, steer: float, forward: float = 0.0) -> void:
   slide_left = maxf(0, slide_left - dt)
   # Charge drains in lockstep with slide_left (both fall to 0 together,
   # since slide_left was initialized as skate_charge * max_duration above).
-  skate_charge = maxf(0, skate_charge - dt / Rules.SKATE_MAX_DURATION[tiers.skates])
+  # Skate Efficiency (Rules.UPGRADES.skate_efficiency) slows the drain
+  # without touching the core tier's own SKATE_MAX_DURATION numbers.
+  var drain_scale: float = 1.0 - tiers.skate_efficiency * 0.1
+  skate_charge = maxf(0, skate_charge - dt / Rules.SKATE_MAX_DURATION[tiers.skates] * drain_scale)
   if slide_left <= 0 or skate_charge <= 0:
    stop_on_ground()
  else:
-  velocity.x = move_toward(velocity.x, steer * 5, 3.5 * dt)
+  # Air Control (Rules.UPGRADES.air_control) plus a small Double Jump tier-2
+  # bonus (Rules.UPGRADES.double_jump) both scale this same lateral steering
+  # accel; swing/dead never see the bonus since it's scoped to mode=="air".
+  var lateral_accel: float = 3.5
+  if mode == "air":
+   var double_jump_bonus: float = 0.12 if tiers.double_jump >= 2 else 0.0
+   lateral_accel *= 1.0 + tiers.air_control * 0.15 + double_jump_bonus
+  velocity.x = move_toward(velocity.x, steer * 5, lateral_accel * dt)
  # Recharges any time the player isn't actively spending it sliding —
  # regardless of ground/air/swing mode, and never reset by wire connect,
  # jump, or landing (only actual slide usage drains it, only reset() to a
- # fresh run sets it back to full).
+ # fresh run sets it back to full). Skate Recharge (Rules.UPGRADES.skate_recharge)
+ # speeds this up without touching the core tier's own recharge numbers.
  if mode != "slide" and tiers.skates > 0 and skate_charge < 1.0:
-  skate_charge = minf(1.0, skate_charge + dt / Rules.SKATE_RECHARGE_DURATION[tiers.skates])
+  var recharge_scale: float = 1.0 + tiers.skate_recharge * 0.15
+  skate_charge = minf(1.0, skate_charge + dt / Rules.SKATE_RECHARGE_DURATION[tiers.skates] * recharge_scale)
  velocity.y -= Rules.GRAVITY * dt
  if is_instance_valid(anchor):
   hook_left -= dt
@@ -322,8 +379,16 @@ func land(incoming: Vector3) -> void:
 
 func stop_on_ground() -> void:
  release_wire()
+ var retained: Vector3 = Vector3.ZERO
+ if mode == "slide" and active_synergies.street_surfer:
+  # STREET SURFER (Roller Skate core Lv3 + Momentum investment): softens the
+  # otherwise-instant stop when a timed slide's duration runs out, instead
+  # of zeroing velocity outright. Only applies when actually ending a slide
+  # (mode == "slide" here) — an ordinary flat landing still stops cleanly.
+  # See PHASE A spec section 14.
+  retained = Vector3(velocity.x, 0, velocity.z) * 0.25
  mode = "ground"
- velocity = Vector3.ZERO
+ velocity = retained
  notice.emit("LANDED — stopped; Space to jump or mouse to hook")
 
 func die(reason: String) -> void:
@@ -345,7 +410,11 @@ func hurt(reason: String) -> bool:
   return true
  if reason == "OBSTACLE COLLISION" and armor_charges > 0:
   armor_charges -= 1
-  invincible = Rules.ARMOR_PROTECTION
+  # Collision Grace (any protected hit) and Armor Support (armor-absorbed
+  # hits only, requires the Impact Armor core already picked) both add a
+  # little extra protection time on top of the base window. Both default to
+  # 0 tier, so unmodified play sees exactly Rules.ARMOR_PROTECTION, unchanged.
+  invincible = Rules.ARMOR_PROTECTION + tiers.collision_grace * 0.3 + tiers.armor_support * 0.4
   notice.emit("ARMOR HIT — keep moving / protected for 2 seconds")
   return true
  release_wire()
@@ -354,12 +423,19 @@ func hurt(reason: String) -> bool:
   if not practice and invincible <= 0:
    armor_charges -= 1
   position = Vector3(0, 6, position.z + 5)
-  velocity = Vector3(0, 0, -12)
+  # Impact Armor tier 3 softens this emergency-rescue landing's flow loss:
+  # instead of always resetting to a fixed forward speed, keep half of
+  # whatever forward speed the player already had (still capped so it can't
+  # exceed the original -12 case's clean recovery arc).
+  var rescue_forward: float = -12.0
+  if tiers.armor >= 3:
+   rescue_forward = minf(-8.0, velocity.z * 0.5)
+  velocity = Vector3(0, 0, rescue_forward)
   mode = "air"
   last_release_height = 0
   fresh_landing_hook = false
   jump_exempt = false
-  invincible = 1
+  invincible = 1 + tiers.collision_grace * 0.3
   notice.emit("PRACTICE RESCUE / " + reason if practice else "ARMOR SAVED YOU")
  else:
   die(reason)
@@ -371,8 +447,15 @@ func upgrade(key: String) -> void:
  tiers[key] = mini(3, tiers[key] + 1)
  if key == "armor":
   armor_charges = mini(tiers.armor, armor_charges + 1)
- elif key == "high":
-  city.apply_height_level(tiers.high)
+ evaluate_synergies()
+
+## Re-derives active_synergies from the current tiers. Not player-selectable
+## (see PHASE A spec section 14/15) — just recomputed after every tier
+## change so it can never end up stale or double-registered.
+func evaluate_synergies() -> void:
+ active_synergies.slingshot = tiers.reel >= 2 and tiers.range >= 2
+ active_synergies.street_surfer = tiers.skates >= 3 and (tiers.release_momentum + tiers.skate_recharge + tiers.skate_efficiency) >= 2
+ active_synergies.sky_runner = tiers.double_jump >= 3 and tiers.jump >= 2
 
 ## Purely cosmetic: where the drawn wire line starts. Physics (hook timing,
 ## anchor distance, rope length) all still use global_position untouched —

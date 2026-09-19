@@ -107,7 +107,7 @@ func run() -> void:
  check(game.rider.anchor == attached and game.rider.hook_connected, "swinging behind the attached obstacle no longer disconnects")
  await frames(45)
  check(game.rider.anchor == attached and game.rider.hook_connected, "aerial swing continues beyond the old disconnect timeout")
- game.rider.upgrade("high")
+ game.city.apply_height_level(game.city.high_level + 1)
  await frames(10)
  check(game.rider.anchor == attached and game.rider.hook_connected, "raised attached obstacle stays connected")
  game.rider.position = hazard.global_position + Vector3(0, 0, -6)

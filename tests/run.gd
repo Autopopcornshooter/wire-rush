@@ -27,6 +27,15 @@ func fixture() -> void:
  game.set_physics_process(false)
  game.set_process(false)
  await physics_frame
+## main.gd's pending_upgrades is Array[String]; assigning a plain array
+## literal directly to that typed property from outside the class doesn't
+## get the same implicit element-typing a `var x: Array[String] = [...]`
+## declaration gets, so route it through a typed local first.
+func typed_queue(entries: Array) -> Array[String]:
+ var typed: Array[String] = []
+ for entry in entries:
+  typed.append(entry)
+ return typed
 func frames(count: int) -> void:
  for i in range(count):
   await physics_frame
@@ -298,7 +307,7 @@ func run() -> void:
  var building: Node3D = buildings(chunk)[0]
  var original_height: float = building.get_meta("height")
  var original_hazard_y: float = blocks[0].position.y
- game.rider.upgrade("high")
+ game.city.apply_height_level(game.city.high_level + 1)
  # Building Height is next-chunk-only now: picking it must never move
  # geometry that already exists (no popping buildings, no teleporting
  # obstacles/hooks under the player).
@@ -310,8 +319,8 @@ func run() -> void:
  var future: Node3D = buildings(game.city.chunks[9])[0]
  check(is_equal_approx(future.get_meta("height"), float(future.get_meta("base_height")) + 10), "a newly created chunk inherits the raised height")
  check(future_hazards.size() == 5, "a newly created chunk at a higher Building Height tier also gets more obstacles")
- game.rider.upgrade("high")
- game.rider.upgrade("high")
+ game.city.apply_height_level(game.city.high_level + 1)
+ game.city.apply_height_level(game.city.high_level + 1)
  check(is_equal_approx(building.get_meta("height"), original_height) and is_equal_approx(blocks[0].position.y, original_hazard_y), "further upgrades still never touch the original chunk, even at the highest tier")
  game.city.create_chunk(10)
  var maxed_hazards: Array = hazards(game.city.chunks[10])
@@ -323,7 +332,7 @@ func run() -> void:
  await fixture()
  await hook(4)
  var fixed: Vector3 = game.rider.anchor.global_position
- game.rider.upgrade("high")
+ game.city.apply_height_level(game.city.high_level + 1)
  check(game.rider.anchor.global_position == fixed, "growing a building does not displace its fixed wall hook")
  game.city.create_chunk(5)
  var tall_chunk: Node3D = game.city.chunks[5]
@@ -344,7 +353,7 @@ func run() -> void:
  await frames(20)
  check(game.rider.hook_connected and game.rider.anchor.get_parent() == hazard, "aerial hook connects through normal hook flight")
  game.rider.position.y = 4
- game.rider.upgrade("high")
+ game.city.apply_height_level(game.city.high_level + 1)
  game.rider.release_wire()
  check(game.rider.last_release_height == 4 and game.rider.landing_safe(), "raising a held aerial anchor does not change player release height")
  game.rider.invincible = 0
@@ -372,34 +381,48 @@ func run() -> void:
  while game.xp >= Rules.xp_required(game.level):
   game.xp -= Rules.xp_required(game.level)
   game.level += 1
-  game.pending_upgrades += 1
- check(game.level == 2 and game.xp == 70 and game.pending_upgrades == 1 and game.phase == "playing", "leveling up queues an upgrade instead of pausing immediately")
+  game.pending_upgrades.append("CORE" if game.level % Rules.CORE_UPGRADE_INTERVAL == 0 else "NORMAL")
+ check(game.level == 2 and game.xp == 70 and game.pending_upgrades.size() == 1 and game.phase == "playing", "leveling up queues an upgrade instead of pausing immediately")
  game.open_upgrades()
  check(game.phase == "upgrade" and game.choices.all(func(key: String): return Rules.UPGRADES.has(key)), "upgrade cards contain supported abilities")
  var frozen: Vector3 = game.rider.position
  game._physics_process(0.5)
  check(game.rider.position == frozen, "upgrade selection freezes simulation")
  game.choose(0)
- check(game.level == 2 and game.xp == 70 and game.pending_upgrades == 0 and game.phase == "countdown", "upgrade selection carries XP and gates resume")
+ check(game.level == 2 and game.xp == 70 and game.pending_upgrades.is_empty() and game.phase == "countdown", "upgrade selection carries XP and gates resume")
 
  await fixture()
- game.pending_upgrades = 2
+ game.pending_upgrades = typed_queue(["NORMAL", "NORMAL"])
  game.upgrades_taken = 0
  game.open_upgrades()
- check(game.phase == "upgrade" and game.pending_upgrades == 2, "pressing G opens the first of several stacked upgrades")
+ check(game.phase == "upgrade" and game.pending_upgrades.size() == 2, "pressing G opens the first of several stacked upgrades")
  game.choose(0)
- check(game.phase == "upgrade" and game.pending_upgrades == 1, "choosing one stacked upgrade immediately opens the next instead of resuming")
+ check(game.phase == "upgrade" and game.pending_upgrades.size() == 1, "choosing one stacked upgrade immediately opens the next instead of resuming")
  game.choose(0)
- check(game.pending_upgrades == 0 and game.phase == "countdown", "the last stacked upgrade resumes play")
+ check(game.pending_upgrades.is_empty() and game.phase == "countdown", "the last stacked upgrade resumes play")
 
  await fixture()
  for perk in game.rider.tiers:
   game.rider.tiers[perk] = 3
  game.rider.armor_charges = 3
- game.pending_upgrades = 2
+ game.pending_upgrades = typed_queue(["NORMAL", "CORE"])
  game.upgrades_taken = 0
  game.open_upgrades()
- check(game.pending_upgrades == 0 and game.phase == "playing", "fully maxed perks silently consume queued upgrades without opening a modal")
+ check(game.pending_upgrades.is_empty() and game.phase == "playing", "fully maxed perks silently consume queued upgrades without opening a modal, whether NORMAL or CORE")
+
+ await fixture()
+ game.pending_upgrades = typed_queue(["NORMAL", "CORE", "NORMAL"])
+ check(game.pending_upgrades == ["NORMAL", "CORE", "NORMAL"], "a queue built from stacked level-ups preserves each entry's own type and order")
+ game.open_upgrades()
+ check(game.choices.all(func(key: String): return Rules.UPGRADES[key].type == "NORMAL"), "a NORMAL queue entry only offers NORMAL-pool upgrades")
+ game.choose(0)
+ check(game.pending_upgrades == ["CORE", "NORMAL"], "consuming the first queued entry leaves the rest in order")
+ check(game.choices.all(func(key: String): return Rules.UPGRADES[key].type == "CORE"), "the queue's next (CORE) entry now offers only CORE-pool abilities")
+ game.choose(0)
+ check(game.pending_upgrades == ["NORMAL"], "consuming the CORE entry leaves the final NORMAL entry untouched")
+ check(game.choices.all(func(key: String): return Rules.UPGRADES[key].type == "NORMAL"), "the final queued entry is NORMAL again, not re-evaluated against the player's current level")
+ game.choose(0)
+ check(game.pending_upgrades.is_empty() and game.phase == "countdown", "the whole stacked queue resolves in NORMAL, CORE, NORMAL order")
  print("RESULT ", checks - failures, "/", checks, " passed; failures=", failures)
  game.free()
  await process_frame

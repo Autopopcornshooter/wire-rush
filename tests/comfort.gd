@@ -16,6 +16,15 @@ func fixture() -> void:
  game.start_run(true)
  game.rider.practice = false
  await physics_frame
+## main.gd's pending_upgrades is Array[String]; assigning a plain array
+## literal directly to that typed property from outside the class doesn't
+## get the same implicit element-typing a `var x: Array[String] = [...]`
+## declaration gets, so route it through a typed local first.
+func typed_queue(entries: Array) -> Array[String]:
+ var typed: Array[String] = []
+ for entry in entries:
+  typed.append(entry)
+ return typed
 func frames(count: int) -> void:
  for i in range(count):
   await physics_frame
@@ -91,7 +100,8 @@ func run() -> void:
  await fixture()
  game.rider.upgrade("armor")
  var armor_offered: bool = false
- game.pending_upgrades = 1
+ # Armor is a CORE ability now — offered only on a queued CORE entry.
+ game.pending_upgrades = typed_queue(["CORE"])
  for seed_value in range(40):
   game.phase = "playing"
   game.rng.seed = seed_value
@@ -101,11 +111,11 @@ func run() -> void:
  for perk in game.rider.tiers:
   game.rider.tiers[perk] = 3
  game.phase = "playing"
- game.pending_upgrades = 1
+ game.pending_upgrades = typed_queue(["CORE"])
  game.open_upgrades()
- check(game.choices.is_empty() and game.phase == "playing" and game.pending_upgrades == 0, "fully upgraded held armor does not force an empty choice screen")
+ check(game.choices.is_empty() and game.phase == "playing" and game.pending_upgrades.is_empty(), "fully upgraded held armor does not force an empty choice screen")
  game.rider.armor_charges = 0
- game.pending_upgrades = 1
+ game.pending_upgrades = typed_queue(["CORE"])
  game.open_upgrades()
  check(game.choices == ["armor"], "empty armor can be replenished even at its maximum tier")
  game.choose(0)
@@ -156,7 +166,7 @@ func run() -> void:
  check(game.camera_pan.length() < 0.001, "small central mouse movements stay inside the camera dead zone")
  await fixture()
  for i in range(3):
-  game.rider.upgrade("high")
+  game.city.apply_height_level(game.city.high_level + 1)
  # Building Height is next-chunk-only: the fixture's own starting chunk (0)
  # never grows retroactively, so a newly created chunk is what actually has
  # the raised wall to aim at here.

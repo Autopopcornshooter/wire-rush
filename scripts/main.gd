@@ -22,7 +22,12 @@ var distance: float = 0
 var best: float = 0
 var xp: float = 0
 var level: int = 1
-var pending_upgrades: int = 0
+## Ordered queue of "NORMAL"/"CORE" — one entry per level-up not yet spent
+## with G. Preserves order and type per queued level (not just a count) so
+## e.g. Lv4→5→6 stacking up mid-run is always consumed as NORMAL, CORE,
+## NORMAL regardless of the player's *current* level when they finally press
+## G. See Rules.CORE_UPGRADE_INTERVAL and open_upgrades()/choose().
+var pending_upgrades: Array[String] = []
 var upgrades_taken: int = 0
 var choices: Array[String] = []
 var message: String = ""
@@ -166,7 +171,7 @@ func start_run(practice: bool) -> void:
  distance = 0
  xp = 0
  level = 1
- pending_upgrades = 0
+ pending_upgrades.clear()
  upgrades_taken = 0
  death_reason = ""
  phase = "playing"
@@ -204,7 +209,7 @@ func _input(event: InputEvent) -> void:
   if event.keycode == KEY_R and phase in ["playing", "dead", "paused"]:
    start_run(training)
    return
-  if phase == "playing" and event.keycode == KEY_G and pending_upgrades > 0:
+  if phase == "playing" and event.keycode == KEY_G and not pending_upgrades.is_empty():
    open_upgrades()
    return
   if phase == "playing" or (phase == "countdown" and countdown_started):
@@ -273,7 +278,7 @@ func _physics_process(delta: float) -> void:
   while xp >= Rules.xp_required(level):
    xp -= Rules.xp_required(level)
    level += 1
-   pending_upgrades += 1
+   pending_upgrades.append("CORE" if level % Rules.CORE_UPGRADE_INTERVAL == 0 else "NORMAL")
  notice_left = maxf(0, notice_left - delta)
 
 func _process(delta: float) -> void:
@@ -319,7 +324,7 @@ func process_mouse_commands() -> void:
   rider.jump()
  for command in pending_mouse:
   if command.pressed:
-   var selection: Dictionary = city.manual_target(rider.position, command.origin, command.direction, rider.reach(), rider.get_rid())
+   var selection: Dictionary = city.manual_target(rider.position, command.origin, command.direction, rider.reach(), rider.get_rid(), rider.aim_slack())
    rider.fire_manual(selection, command.side)
   else:
    rider.release_side(command.side)
@@ -327,7 +332,7 @@ func process_mouse_commands() -> void:
  pending_jump = false
 
 func update_targets() -> void:
- aim_preview = city.manual_target(rider.position, camera.project_ray_origin(aim_screen), camera.project_ray_normal(aim_screen), rider.reach(), rider.get_rid())
+ aim_preview = city.manual_target(rider.position, camera.project_ray_origin(aim_screen), camera.project_ray_normal(aim_screen), rider.reach(), rider.get_rid(), rider.aim_slack())
 
 func open_settings() -> void:
  if phase not in ["menu", "paused"]:
@@ -393,9 +398,11 @@ func apply_sfx_volume() -> void:
 func demo_manual() -> void:
  if not is_instance_valid(rider.anchor) and rider.position.y > 2:
   var side: int = -1 if demo_hooks % 2 == 0 else 1
-  var point := Vector3(side * 7.4, 18 + Rules.BUILDING_BONUS[rider.tiers.high] * 0.5, rider.position.z - 10)
+  # Building height is world-side now (City.high_level), not a player
+  # upgrade tier — see Rules.UPGRADES / City.apply_height_level.
+  var point := Vector3(side * 7.4, 18 + Rules.BUILDING_BONUS[city.high_level] * 0.5, rider.position.z - 10)
   aim_screen = camera.unproject_position(point)
-  var selection: Dictionary = city.manual_target(rider.position, camera.position, (point - camera.position).normalized(), rider.reach(), rider.get_rid())
+  var selection: Dictionary = city.manual_target(rider.position, camera.position, (point - camera.position).normalized(), rider.reach(), rider.get_rid(), rider.aim_slack())
   if rider.fire_manual(selection, side):
    demo_hooks += 1
  if rider.mode == "ground":
@@ -435,28 +442,46 @@ func return_menu() -> void:
  create_world(false)
  hud.rebuild_buttons()
 
-func open_upgrades() -> void:
- if pending_upgrades <= 0:
-  return
- choices.clear()
+## Candidate keys for the front-of-queue pending upgrade's type. NORMAL never
+## offers a CORE ability (double_jump/skates/armor) and vice versa — each
+## lives in a disjoint pool by Rules.UPGRADES[key].type. Maxed-tier and
+## unmet-`requires` upgrades are excluded from NORMAL; armor's own
+## charge-refill exception (offer it again once charges run out, even at max
+## tier) is preserved for CORE, matching its pre-PHASE-A behavior.
+func upgrade_pool(type: String) -> Array[String]:
  var pool: Array[String] = []
  for key in Rules.UPGRADES:
+  var info: Dictionary = Rules.UPGRADES[key]
+  if info.type != type:
+   continue
   if key == "armor":
+   # Preserves pre-PHASE-A behavior exactly: offered whenever the charge is
+   # empty, regardless of tier (so it can both raise tier and refill a spent
+   # charge at max tier); never offered while a charge is still held, even
+   # if tier isn't maxed yet.
    if rider.armor_charges == 0:
     pool.append(key)
    continue
-  if rider.tiers[key] < 3:
-   pool.append(key)
- if upgrades_taken == 0 and "skates" in pool:
-  choices.append("skates")
-  pool.erase("skates")
+  if rider.tiers[key] >= info.max_tier:
+   continue
+  if info.has("requires") and rider.tiers.get(info.requires, 0) <= 0:
+   continue
+  pool.append(key)
+ return pool
+
+func open_upgrades() -> void:
+ if pending_upgrades.is_empty():
+  return
+ choices.clear()
+ var pool: Array[String] = upgrade_pool(pending_upgrades[0])
  while choices.size() < 3 and not pool.is_empty():
   var i: int = rng.randi_range(0, pool.size() - 1)
   choices.append(pool[i])
   pool.remove_at(i)
  if choices.is_empty():
-  # All abilities maxed: consume the pending upgrade without an empty modal.
-  pending_upgrades -= 1
+  # Every candidate in this queued level's pool is maxed (or armor is both
+  # maxed and fully charged): consume the pending upgrade without an empty modal.
+  pending_upgrades.pop_front()
   upgrades_taken += 1
   open_upgrades()
   return
@@ -470,9 +495,10 @@ func choose(index: int) -> void:
  if phase != "upgrade" or index < 0 or index >= choices.size():
   return
  rider.upgrade(choices[index])
- pending_upgrades = maxi(0, pending_upgrades - 1)
+ if not pending_upgrades.is_empty():
+  pending_upgrades.pop_front()
  upgrades_taken += 1
- if pending_upgrades > 0:
+ if not pending_upgrades.is_empty():
   open_upgrades()
  else:
   resume()

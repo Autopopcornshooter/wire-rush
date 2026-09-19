@@ -692,7 +692,12 @@ func attach_drone_visual(hazard: StaticBody3D, size: Vector3) -> void:
  # direction is -Z — so "6 o'clock" (the direction opposite of travel) is
  # already +Z with zero extra rotation needed.
 
-func manual_target(from: Vector3, ray_origin: Vector3, direction: Vector3, reach: float, exclude: RID) -> Dictionary:
+## `slack` widens only the RANGE ASSIST fallback's reach tolerance below —
+## it never changes the strict `reach` check in validate_manual_point, and
+## defaults to the original 0.08m so every existing caller (tests, capture
+## scripts) is unaffected. Rules.UPGRADES.attach_assist is the only thing
+## that passes a larger value, via Rider.aim_slack().
+func manual_target(from: Vector3, ray_origin: Vector3, direction: Vector3, reach: float, exclude: RID, slack: float = 0.08) -> Dictionary:
  var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_origin + direction.normalized() * 500.0, 1)
  query.exclude = [exclude]
  var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
@@ -700,10 +705,10 @@ func manual_target(from: Vector3, ray_origin: Vector3, direction: Vector3, reach
   return {"valid": false, "reason": "AIM AT A SURFACE"}
  var target: Dictionary = validate_manual_point(from, hit.position, hit.normal, hit.collider, reach, exclude)
  if target.get("reason", "") == "OUT OF RANGE":
-  return range_limited_target(from, hit.position, reach, exclude)
+  return range_limited_target(from, hit.position, reach, exclude, slack)
  return target
 
-func range_limited_target(from: Vector3, desired: Vector3, reach: float, exclude: RID) -> Dictionary:
+func range_limited_target(from: Vector3, desired: Vector3, reach: float, exclude: RID, slack: float = 0.08) -> Dictionary:
  # Project the cursor's distant surface onto reachable box faces. Keep real surfaces,
  # including building gaps and small aerial blocks, rather than making floating hooks.
  var aim: Vector3 = (desired - from).normalized()
@@ -718,7 +723,7 @@ func range_limited_target(from: Vector3, desired: Vector3, reach: float, exclude
    var center: Vector3 = collision.global_position
    var bounds := AABB(center - half_size, half_size * 2)
    var nearest: Vector3 = from.clamp(bounds.position, bounds.end)
-   if from.distance_to(nearest) > reach + 0.08:
+   if from.distance_to(nearest) > reach + slack:
     continue
    for axis in range(3):
     for side in [-1.0, 1.0]:
