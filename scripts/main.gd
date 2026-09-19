@@ -5,6 +5,9 @@ const Hud = preload("res://scripts/hud.gd")
 const Rules = preload("res://scripts/rules.gd")
 const Preferences = preload("res://scripts/preferences.gd")
 const Locale = preload("res://scripts/localization.gd")
+const DifficultyDirector = preload("res://scripts/difficulty_director.gd")
+const CityBoss = preload("res://scripts/city_boss.gd")
+const SignalStory = preload("res://scripts/signal_story.gd")
 var preferences = Preferences.new()
 var locale = Locale.new()
 var settings_return: String = "menu"
@@ -14,6 +17,7 @@ var aim_preview: Dictionary = {}
 var pending_mouse: Array[Dictionary] = []
 var city: Node3D
 var rider: CharacterBody3D
+var boss: Node3D
 var camera: Camera3D
 var hud: Control
 var phase: String = "menu"
@@ -32,6 +36,13 @@ var upgrades_taken: int = 0
 var choices: Array[String] = []
 var message: String = ""
 var notice_left: float = 0
+## PHASE C Signal Story: which SignalStory ids have already played this run
+## (reset in start_run(), never persisted — see SignalStory's own doc
+## comment). `signal_text`/`signal_shown_until` drive Hud's small transient
+## subtitle (Hud.draw_signal_subtitle()) — no dialogue window, no pause.
+var played_signals: Array[String] = []
+var signal_text: String = ""
+var signal_shown_until: float = -10.0
 var death_reason: String = ""
 var countdown: float = 0
 var countdown_started: bool = false
@@ -149,6 +160,8 @@ func create_world(practice: bool) -> void:
   rider.free()
  if is_instance_valid(city):
   city.free()
+ if is_instance_valid(boss):
+  boss.free()
  city = City.new()
  city.locale = locale
  city.practice = practice
@@ -161,6 +174,9 @@ func create_world(practice: bool) -> void:
  rider.crashed.connect(end_run)
  rider.slid.connect(func(): tone(740, 0.12))
  rider.reset(practice)
+ boss = CityBoss.new()
+ add_child(boss)
+ boss.reset()
 
 func start_run(practice: bool) -> void:
  pending_mouse.clear()
@@ -173,6 +189,9 @@ func start_run(practice: bool) -> void:
  level = 1
  pending_upgrades.clear()
  upgrades_taken = 0
+ played_signals.clear()
+ signal_text = ""
+ signal_shown_until = -10.0
  death_reason = ""
  phase = "playing"
  camera_pan = Vector2.ZERO
@@ -268,6 +287,9 @@ func _physics_process(delta: float) -> void:
   tone(960, 0.055)
  city.update_chunks(distance, rider.anchor)
  city.update_vehicles(delta)
+ if not training:
+  boss.update(delta, distance, rider, city)
+  check_signals()
  if rider.position.z < -2048:
   city.rebase(2048)
   rider.position.z += 2048
@@ -280,6 +302,33 @@ func _physics_process(delta: float) -> void:
    level += 1
    pending_upgrades.append("CORE" if level % Rules.CORE_UPGRADE_INTERVAL == 0 else "NORMAL")
  notice_left = maxf(0, notice_left - delta)
+
+## PHASE C City Chapter state — pure function of `distance` (see
+## DifficultyDirector.chapter_for_distance()). Not stored: the only way to
+## reach a further distance is to have survived getting there, so there's
+## nothing to track beyond distance itself. Practice runs never leave
+## CITY_RUN (the boss/rest-area/signal systems are all gated on `not
+## training` in _physics_process, matching how XP/leveling already skip
+## practice mode).
+func chapter_state() -> String:
+ return DifficultyDirector.chapter_for_distance(distance) if not training else "CITY_RUN"
+
+## PHASE C Signal Story: checks each not-yet-played signal's condition once
+## per frame and shows the first newly-eligible one as a transient subtitle
+## (Hud.draw_signal_subtitle()) — never pauses, never opens a window. At
+## most one signal is queued to show per check; if two conditions become
+## true on the exact same frame the other simply shows on the next check
+## once its own turn comes (still exactly once, still never dropped).
+func check_signals() -> void:
+ var chapter: String = chapter_state()
+ for id in SignalStory.ORDER:
+  if played_signals.has(id):
+   continue
+  if SignalStory.condition_met(id, distance, chapter):
+   played_signals.append(id)
+   signal_text = SignalStory.MESSAGES[id]
+   signal_shown_until = Time.get_ticks_msec() / 1000.0 + 3.5
+   break
 
 func _process(delta: float) -> void:
  if not is_instance_valid(rider):

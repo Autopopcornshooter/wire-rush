@@ -2,6 +2,9 @@ extends RefCounted
 const FONT = preload("res://assets/fonts/ui_font.tres")
 var language: String = "ko"
 const KO: Dictionary = {
+ "...are you listening?": "...듣고 있어?",
+ "We need to get out of the city.": "도시 밖으로 나가야 해.",
+ "I didn't think you'd make it this far...": "여기까지 올 줄은 몰랐는데...",
  "RELEASE CONTROLS": "조작키를 놓아주세요",
  "Aim now; held wire input fires when the countdown ends.": "미리 조준하세요. 누른 와이어 입력은 카운트다운 종료 시 발사됩니다.",
  "ARMOR HIT — keep moving / protected for 2 seconds": "방어구 소모 — 그대로 진행 / 2초간 장애물 무적",

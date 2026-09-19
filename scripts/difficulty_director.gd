@@ -51,6 +51,12 @@ static func tier_for_distance(distance: float) -> int:
 ## doubling per tier (see City.create_chunk()/spawn_vehicles()).
 static func get_city_difficulty(distance: float, chapter: String = "CITY", loop: int = 1) -> Dictionary:
  var tier: int = tier_for_distance(distance)
+ var vehicle_gap_scale: float = [7.0, 5.0, 4.0, 3.0][tier]
+ # PHASE C spec section 22: the boss encounter keeps vehicle density at
+ # "normal or low" regardless of tier, so ambient traffic never competes
+ # with the boss's own patterns for the player's attention.
+ if is_boss_zone(distance):
+  vehicle_gap_scale = maxf(vehicle_gap_scale, 5.0)
  return {
   "tier": tier,
   "building_height_level": tier,
@@ -61,7 +67,7 @@ static func get_city_difficulty(distance: float, chapter: String = "CITY", loop:
   ## Multiplies the base per-car gap in City.spawn_vehicles(): higher =
   ## sparser traffic. TIER 0 is sparser than the historical default (5.0,
   ## now TIER 1's value); TIER 2/3 gradually denser.
-  "vehicle_gap_scale": [7.0, 5.0, 4.0, 3.0][tier],
+  "vehicle_gap_scale": vehicle_gap_scale,
   "sky_gap_eligible": distance >= SKY_GAP_MIN_DISTANCE,
   "traffic_surge_eligible": tier >= 1,
  }
@@ -110,6 +116,11 @@ const TRAFFIC_SURGE_VEHICLE_GAP_SCALE: float = 2.0
 ## chunks simply never spawn vehicles at all — see City.create_chunk()).
 static func event_for_chunk(index: int) -> String:
  var distance: float = index * LENGTH
+ # PHASE C spec section 21: a random Sky Gap/Traffic Surge must never
+ # coincide with the boss encounter (or the rest area right after it) — the
+ # boss's own patterns are the only route pressure during that whole span.
+ if is_boss_zone(distance) or is_rest_zone(distance):
+  return EVENT_NONE
  if distance >= SKY_GAP_MIN_DISTANCE and posmod(index, SKY_GAP_PERIOD_CHUNKS) < SKY_GAP_LENGTH_CHUNKS:
   return EVENT_SKY_GAP
  var tier: int = tier_for_distance(distance)
@@ -124,3 +135,51 @@ static func is_traffic_surge_chunk(index: int, tier: int) -> bool:
   return false
  var roll: int = posmod(window_index * 131 + 47, 12)
  return roll < TRAFFIC_SURGE_CHANCE_BY_TIER[tier]
+
+# ---------------------------------------------------------------------
+# PHASE C: City Chapter progression (Boss / Rest Area / City Complete).
+# Purely distance-window constants, same style as everything above — the
+# City Boss controller (scripts/city_boss.gd) owns its own runtime pattern
+# state machine (it's a real scene node with visuals/collision, not a pure
+# function), but every WORLD-GENERATION consequence of being inside the
+# boss encounter or the rest area (suppressing Sky Gap/Traffic Surge,
+# lowering/zeroing vehicle density) is expressed here as plain distance
+# checks, so City.gd's generation stays exactly as deterministic and
+# order-independent as it already was for every other chunk.
+# ---------------------------------------------------------------------
+const CITY_BOSS_START_DISTANCE: float = 3200.0
+## Reaching START + ESCAPE clears the boss — see PHASE C spec section 20.
+const CITY_BOSS_ESCAPE_DISTANCE: float = 700.0
+## A calm stretch immediately after the boss, before CITY_COMPLETE.
+const REST_AREA_LENGTH: float = 400.0
+
+static func city_boss_clear_distance() -> float:
+ return CITY_BOSS_START_DISTANCE + CITY_BOSS_ESCAPE_DISTANCE
+
+static func rest_area_end_distance() -> float:
+ return city_boss_clear_distance() + REST_AREA_LENGTH
+
+static func is_boss_zone(distance: float) -> bool:
+ return distance >= CITY_BOSS_START_DISTANCE and distance < city_boss_clear_distance()
+
+static func is_rest_zone(distance: float) -> bool:
+ return distance >= city_boss_clear_distance() and distance < rest_area_end_distance()
+
+## City Chapter state (PHASE C spec section 35). Pure function of distance:
+## the only way to ever reach a further distance is to have physically
+## survived getting there (dying resets the run via Main.start_run()), so a
+## chapter never needs its own separately-tracked "did the player actually
+## clear the boss" flag beyond this.
+const CHAPTER_RUN: String = "CITY_RUN"
+const CHAPTER_BOSS: String = "CITY_BOSS"
+const CHAPTER_REST: String = "CITY_REST"
+const CHAPTER_COMPLETE: String = "CITY_COMPLETE"
+
+static func chapter_for_distance(distance: float) -> String:
+ if distance < CITY_BOSS_START_DISTANCE:
+  return CHAPTER_RUN
+ if is_boss_zone(distance):
+  return CHAPTER_BOSS
+ if is_rest_zone(distance):
+  return CHAPTER_REST
+ return CHAPTER_COMPLETE

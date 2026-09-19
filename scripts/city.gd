@@ -266,12 +266,20 @@ func create_chunk(index: int) -> void:
  for stripe in range(8):
   box(chunk, Vector3(0, 0.025, -stripe * 8 - 4), Vector3(0.08, 0.035, 3), Color("45627a"))
  var event: String = event_for_chunk(index)
+ var rest_zone: bool = DifficultyDirector.is_rest_zone(index * LENGTH)
  # SKY GAP is a "no vehicles" event by definition (PHASE B spec section 13);
- # TRAFFIC SURGE instead raises density on an otherwise-normal chunk.
- if not practice and event != DifficultyDirector.EVENT_SKY_GAP:
+ # the Rest Area (PHASE C section 26: "차량 없음 또는 극소수") gets the same
+ # treatment; TRAFFIC SURGE instead raises density on an otherwise-normal chunk.
+ if not practice and not rest_zone and event != DifficultyDirector.EVENT_SKY_GAP:
   var gap_scale: float = DifficultyDirector.TRAFFIC_SURGE_VEHICLE_GAP_SCALE if event == DifficultyDirector.EVENT_TRAFFIC_SURGE else DifficultyDirector.get_city_difficulty(index * LENGTH).vehicle_gap_scale
   spawn_vehicles(chunk, index, gap_scale)
- if kind > 0:
+ if rest_zone:
+  spawn_wasteland_gate_if_boundary(chunk, index)
+ # The Rest Area also drops the ordinary aerial-hazard/police-drone spawn
+ # entirely (PHASE C section 26: "일반 hazard 거의 없음... police drone 없음
+ # 또는 극소수") — buildings/road stay exactly as normal City generation
+ # would make them ("건물/도로 구조는 안전"), only the hazard loop below is skipped.
+ if kind > 0 and not rest_zone:
   # Compact hazards spread sideways and vertically instead of a full-width
   # wall. Count and vertical spread both scale with the CURRENT high_level
   # (read once, here, at chunk-creation time — never touched again after
@@ -437,6 +445,21 @@ func add_safe_zone_marking(building: Node3D, side: int) -> void:
  for h in [2.4, 5.2]:
   var band := box(building, Vector3(-side * 4.1, h, 0), Vector3(0.08, 0.28, 13), SAFE_ZONE_COLOR, false, true)
   band.get_child(0).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+## PHASE C spec section 36: "Wasteland Entry Placeholder" — a purely
+## decorative Graybox boundary marker (two pillars + a glowing lintel
+## spanning the road) at the exact chunk where the Rest Area ends and
+## CITY_COMPLETE begins. No collision, no gameplay effect, no actual
+## Wasteland content — it exists once, deterministically, at
+## floori(rest_area_end_distance() / LENGTH), and is cleaned up by the
+## ordinary chunk-streaming lifecycle exactly like everything else in a chunk.
+func spawn_wasteland_gate_if_boundary(chunk: Node3D, index: int) -> void:
+ if index != floori(DifficultyDirector.rest_area_end_distance() / LENGTH):
+  return
+ var gate_color := Color("7a5a3f")
+ for side in [-1, 1]:
+  box(chunk, Vector3(side * 7.0, 9.0, -32.0), Vector3(1.2, 18.0, 1.2), gate_color)
+ box(chunk, Vector3(0, 17.5, -32.0), Vector3(15.2, 1.0, 1.2), Color("d98a3d"), false, true)
 
 func start_height() -> float:
  var roof: float = 100

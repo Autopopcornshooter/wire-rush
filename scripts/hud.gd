@@ -252,6 +252,7 @@ func _draw() -> void:
  draw_upgrade_badge(now)
  draw_xp_bar(now)
  draw_levelup_popup(now)
+ draw_signal_subtitle(now)
  if game.phase in ["paused", "dead", "upgrade", "countdown"]:
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
  if game.phase == "paused":
@@ -441,3 +442,22 @@ func draw_levelup_popup(now: float) -> void:
  label_centered(0, -8, "UPGRADE READY", 26, Color(gold, alpha))
  label_centered(0, 22, "Upgrade Point +1", 15, Color(white, alpha))
  draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+
+## PHASE C Signal Story: the one small transient subtitle spec section 32
+## explicitly allows (no dialogue window, no pause, no new persistent panel).
+## Reuses the exact fade shape of draw_levelup_popup() above for visual
+## consistency, just positioned as a bottom-of-screen subtitle instead of a
+## center popup, and drawn straight from game.signal_text/signal_shown_until
+## (set once by Main.check_signals(), never touched here).
+const SIGNAL_SUBTITLE_FADE: float = 0.3
+func draw_signal_subtitle(now: float) -> void:
+ var remaining: float = game.signal_shown_until - now
+ if remaining <= 0 or game.signal_text == "":
+  return
+ var alpha: float = clampf(remaining / SIGNAL_SUBTITLE_FADE, 0.0, 1.0) if remaining < SIGNAL_SUBTITLE_FADE else 1.0
+ var text: String = t(game.signal_text)
+ var width: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+ var box_w: float = width + 48
+ var box := Rect2(640 - box_w * 0.5, 636, box_w, 40)
+ draw_style_box(style(Color(0.02, 0.03, 0.05, 0.75 * alpha)), box)
+ label_centered(640, box.position.y + 27, game.signal_text, 20, Color(cyan, alpha))

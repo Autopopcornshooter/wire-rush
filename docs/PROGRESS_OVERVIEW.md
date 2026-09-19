@@ -6,6 +6,8 @@
 
 2026-09-20 (PHASE B — Difficulty Director + City Event System). 새 `scripts/difficulty_director.gd`가 진행 거리만으로 City 난이도를 결정합니다(0~500/500~1000/1000~2000/2000m+ 4단계 — TIER마다 building_height_level·공중 장애물 밀도·차량 밀도가 오름). Building Height는 이제 이 Director가 `City.apply_height_level()`을 매 프레임 호출해 정하며(PHASE A가 남겨둔 그 API를 그대로 재사용), 플레이어 업그레이드는 이 값에 전혀 관여하지 않습니다 — 기존처럼 이미 생성된 청크는 절대 바뀌지 않고, 새로 스트리밍되는 청크만 그 시점의 난이도를 반영합니다. 기존 2000m 이후 "no-building" 특수 케이스를 City Event 구조(SKY_GAP/TRAFFIC_SURGE, `City.event_for_chunk()`)로 정리하고, 새 이벤트 TRAFFIC SURGE(짧은 구간 차량 밀도 증가, 기존 car1~5만 사용)를 추가했습니다. 공중 장애물의 높이 배치 공식을 대칭 삼각파 방식으로 바꿔, 이전에 있던 "연속된 두 장애물이 이론상 기본 사거리 밖으로 벌어질 수 있는" 잠재적 버그(Traversability Guard, `City.MAX_BASE_TRAVERSAL_GAP`)를 없앴습니다. 새 HUD·난이도 표시는 추가하지 않았습니다.
 
+2026-09-20 (PHASE C — City Boss Graybox + Rest Area + Signal Story). 새 `scripts/city_boss.gd`(Traversal Boss "Police Interceptor", 그레이박스)가 3200m(`DifficultyDirector.CITY_BOSS_START_DISTANCE`)에서 시작해 700m 진행 시 클리어됩니다. 체력·전투 시스템 없음 — INACTIVE→INTRO→ACTIVE→ESCAPE→CLEARED 상태를 거치며, ACTIVE 동안 PATH_BLOCK→LASER_SWEEP→DRONE_GATE를 고정 순서로 반복합니다(각 패턴은 telegraph→active→recovery 3단계). PATH_BLOCK은 항상 한쪽만 막고 반대편은 always open, LASER_SWEEP은 한 높이대만 가로지르며 기존 `Rider.hurt()`(방어구 1회 소비 규칙 그대로) 경로를 재사용, DRONE_GATE는 `City.obstacle()`을 그대로 호출해 기존 police drone 비주얼·collision·wireable 규칙을 상속합니다. Boss/Rest Area(클리어 후 400m, `DifficultyDirector.is_rest_zone()`) 구간에서는 Sky Gap/Traffic Surge가 겹치지 않도록 `DifficultyDirector.event_for_chunk()`에서 억제하고, Rest Area는 hazard·차량·drone을 아예 생성하지 않습니다. 새 `scripts/signal_story.gd`가 City Start/Mid/Boss Clear 3개의 1회성 자막을 관리하며(`Hud.draw_signal_subtitle()`, 새 다이얼로그창 없이 하단 자막만), Rest Area 끝에는 장식용 Wasteland 진입 게이트만 배치했습니다(실제 Wasteland 콘텐츠 없음). Player Progression(rider.gd/main.gd의 업그레이드·시너지 로직)은 이번 PHASE에서 전혀 수정하지 않았습니다.
+
 ## 실행
 
 - 프로젝트: `D:/GameProject/WireSwing/project.godot`
@@ -27,6 +29,9 @@
 | 배치 | 건물 간격 방식으로 고정(128m 구역마다 한쪽 벽 제거). 연습 모드는 항상 양쪽 벽 |
 | City 난이도 | Difficulty Director가 거리만으로 4단계 진행(0~500/500~1000/1000~2000/2000m+). Player Progression과 완전히 독립 — 업그레이드를 선택해도 난이도는 안 변하고, 거리가 늘어도 플레이어 tier는 안 변함 |
 | City Event | SKY_GAP(2000m 이후, 3청크 길이, 10청크 주기 쿨다운: 건물 없음·드론만·차량 없음)과 TRAFFIC_SURGE(500m 이후 확률 등장, 3청크 길이: 차량 밀도만 일시 증가) 2종. 둘 다 종료 후 정상 City로 복귀, 경고 UI 없음 |
+| City Boss | "Police Interceptor"(그레이박스), 3200m 시작·700m 진행 시 클리어. HP/전투 없음 — PATH_BLOCK(한쪽만 차단)→LASER_SWEEP(한 높이대만, telegraph 有, 방어구 1회 방어)→DRONE_GATE(기존 police drone 재사용) 고정 순서 반복. 항상 기본 사거리로 통과 가능한 route 보장. 클리어 시 후퇴·despawn |
+| Rest Area | Boss 클리어 후 400m, hazard·차량·drone 없음, Sky Gap/Traffic Surge 없음. 물리·이동은 그대로 유지, 자동 이동·시네마틱 카메라 없음. 끝나면 CITY_COMPLETE + Wasteland 진입 장식 게이트 |
+| Signal Story | City 시작/1500m/Boss 클리어 총 3개 자막, 한 run에 1회씩만. 하단 소형 자막(3.5초, 페이드), 게임 멈춤 없음. 한국어/영어 지원 |
 | 업그레이드 | 일반 업그레이드(와이어/기동성/모멘텀/생존 4카테고리, 12종)와 코어 업그레이드(이중 점프·롤러스케이트·충격 방어구 3종, 5레벨마다 1회)로 분리. 레벨업은 즉시 멈추지 않고 종류(일반/코어)를 유지한 채 대기 스택에 쌓이며, G 키로 쌓인 순서대로 소비. 건물 높이는 이 목록에서 제외(아래 건물 항목 참고) |
 | 시너지 | 조건 충족 시 자동 발동(직접 선택 불가): SLINGSHOT(감기+사거리 투자, 고속 해제 시 소폭 가속), STREET SURFER(롤러스케이트 최고 등급+모멘텀 투자, 슬라이드 종료 시 관성 일부 유지), SKY RUNNER(이중 점프 최고 등급+점프력 투자, 이중 점프 직후 첫 와이어 연결 가속) |
 | 제외 | E 두 줄 사출, 배치 선택 설정, 자동 앵커 네트워크, 마우스 두 와이어 독립 모드, 와이어 개수 설정 |
