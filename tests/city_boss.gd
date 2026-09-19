@@ -92,6 +92,24 @@ func run() -> void:
  check(absf(game.boss.block_node.global_position.x - closed_side_first * 11.4) < 0.01, "the blocker sits on the closed side's building line")
  check(not is_equal_approx(game.boss.block_node.global_position.x, open_side * 11.4), "fixture sanity: the open side has no blocker at the same position")
 
+ # Boss Revision: the blocker is now a full-height wall, not a small box.
+ var block_shape: BoxShape3D = game.boss.block_node.get_child(1).shape
+ check(is_equal_approx(block_shape.size.x, 8.0), "the wall's width matches the closed building line's own footprint exactly (never spills onto the road or the open side)")
+ var current_max_building_height: float = 35.0 + Rules.BUILDING_BONUS[game.city.high_level]
+ check(block_shape.size.y >= current_max_building_height, "the wall's height covers every building variant at the current Building Height tier, not a fixed 9m")
+ check(is_equal_approx(game.boss.block_node.global_position.y, block_shape.size.y * 0.5), "the wall spans from ground level up (no gap to duck under)")
+ var wall_left: float = closed_side_first * 11.4 - block_shape.size.x * 0.5
+ var wall_right: float = closed_side_first * 11.4 + block_shape.size.x * 0.5
+ check(signi(wall_left) == signi(wall_right) and absf(wall_left) > 6.8, "the wall never crosses the road center line (stays entirely on its own side)")
+
+ # The wall's height formula must scale with EVERY Building Height tier
+ # (0-3), never assuming a single fixed value.
+ for high_level in range(4):
+  game.city.apply_height_level(high_level)
+  var expected: float = CityBoss.PATH_BLOCK_BASE_HEIGHT + Rules.BUILDING_BONUS[high_level] + CityBoss.PATH_BLOCK_HEIGHT_MARGIN
+  check(is_equal_approx(game.boss.path_block_wall_height(), expected), "the wall height formula covers Building Height tier %d with its own margin" % high_level)
+ game.city.apply_height_level(3)
+
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
  check(game.boss.pattern_phase == "ACTIVE" and game.boss.block_node.monitoring, "the blocker becomes solid once its telegraph ends")
 
@@ -124,6 +142,19 @@ func run() -> void:
  check(game.boss.pattern_phase == "TELEGRAPH", "LASER_SWEEP starts in its telegraph phase")
  check(is_instance_valid(game.boss.laser_node) and not game.boss.laser_node.monitoring, "a laser telegraph exists but is not yet collidable")
  var laser_pos_before_active: Vector3 = game.boss.laser_node.global_position
+ check(game.boss.laser_low == true or game.boss.laser_low == false, "fixture sanity: laser_low is a real bool")
+ var first_laser_low: bool = game.boss.laser_low
+ check(is_equal_approx(game.boss.laser_node.global_position.y, 8.0 if first_laser_low else 30.0), "the laser sits at the correct LOW/HIGH y band")
+
+ # Boss Revision: the laser is now a wide barrier plane spanning both
+ # building lines (roughly -15.4..15.4m), not a narrow 14m beam over just
+ # the road, while its visual mesh and collision shape stay identical in
+ # size (same BoxMesh/BoxShape3D dimensions).
+ var laser_mesh: MeshInstance3D = game.boss.laser_node.get_child(0)
+ var laser_shape: BoxShape3D = game.boss.laser_node.get_child(1).shape
+ check(is_equal_approx(laser_mesh.mesh.size.x, laser_shape.size.x) and is_equal_approx(laser_mesh.mesh.size.y, laser_shape.size.y) and is_equal_approx(laser_mesh.mesh.size.z, laser_shape.size.z), "the laser's visible mesh and its collision volume are exactly the same size")
+ check(laser_shape.size.x >= 30.0, "the laser spans the full corridor width, both building lines and the road between them")
+ check(laser_shape.size.y <= 1.0, "the laser stays a thin height band, never a thick slab that could bleed into the other tier")
 
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.LASER_TELEGRAPH + 0.2)
  check(game.boss.pattern_phase == "ACTIVE" and game.boss.laser_node.monitoring, "the laser becomes active (collidable) exactly after its telegraph duration")
@@ -238,11 +269,16 @@ func run() -> void:
   await fixture()
   game.city.practice = false
   var d: float = DifficultyDirector.CITY_BOSS_START_DISTANCE
-  for step in range(400):
-   d += 3.0
+  var end_d: float = DifficultyDirector.rest_area_end_distance() + 10.0
+  while d < end_d:
+   d += 5.0
    game.boss.update(1.0 / 30.0, d, game.rider, game.city)
-   if d >= DifficultyDirector.rest_area_end_distance():
-    break
+  # Distance alone reaching the clear/rest window isn't enough — ESCAPE's
+  # own real-time retreat (CityBoss.ESCAPE_DURATION) still has to finish
+  # ticking before the boss resolves to CLEARED, regardless of how far
+  # CITY_BOSS_ESCAPE_DISTANCE happens to be tuned to.
+  for i in range(int(CityBoss.ESCAPE_DURATION * 30.0) + 10):
+   game.boss.update(1.0 / 30.0, end_d, game.rider, game.city)
   check(game.boss.state == "CLEARED", "run %d: a full simulated encounter reaches CLEARED without getting stuck" % run_index)
   check(not is_instance_valid(game.boss.block_node) and not is_instance_valid(game.boss.laser_node) and not is_instance_valid(game.boss.gate_node), "run %d: no pattern nodes remain after a full encounter" % run_index)
 

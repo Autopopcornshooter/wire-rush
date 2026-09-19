@@ -149,7 +149,12 @@ static func is_traffic_surge_chunk(index: int, tier: int) -> bool:
 # ---------------------------------------------------------------------
 const CITY_BOSS_START_DISTANCE: float = 3200.0
 ## Reaching START + ESCAPE clears the boss — see PHASE C spec section 20.
-const CITY_BOSS_ESCAPE_DISTANCE: float = 700.0
+## Widened 700 -> 1500 in the PHASE C Boss Revision (Boss clear moves from
+## 3900m to 4700m); city_boss_clear_distance()/rest_area_end_distance() and
+## everything derived from them (event suppression window, chapter state)
+## follow automatically since nothing else hardcodes the old 3900/4300
+## figures — see event_for_chunk()/chapter_for_distance() below.
+const CITY_BOSS_ESCAPE_DISTANCE: float = 1500.0
 ## A calm stretch immediately after the boss, before CITY_COMPLETE.
 const REST_AREA_LENGTH: float = 400.0
 

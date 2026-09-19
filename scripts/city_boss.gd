@@ -12,6 +12,7 @@ extends Node3D
 ## other hazard in this game already uses — armor/collision-grace/etc. all
 ## keep working unchanged because this is the same code path, not a new one.
 const DifficultyDirector = preload("res://scripts/difficulty_director.gd")
+const Rules = preload("res://scripts/rules.gd")
 
 const STATE_INACTIVE: String = "INACTIVE"
 const STATE_INTRO: String = "INTRO"
@@ -39,10 +40,34 @@ const COOLDOWN_DURATION: float = 2.0
 const PATH_BLOCK_TELEGRAPH: float = 0.6
 const PATH_BLOCK_ACTIVE: float = 4.0
 const PATH_BLOCK_RECOVERY: float = 0.4
+## Boss Revision: PATH_BLOCK is now a full vertical wall across the closed
+## building line, not a small 6x9x3 box. Width matches City.gd's own
+## building footprint exactly (see City.create_chunk()'s `box(...,
+## Vector3(8, base_height, 14) ...)`), so it fully covers that side's route
+## without ever reaching the road center or the opposite side. Height is
+## computed at spawn time from PATH_BLOCK_BASE_HEIGHT (City's own tallest
+## possible base_height, 23 + 4*3 = 35 — see create_chunk()) plus
+## Rules.BUILDING_BONUS[city.high_level] (the same term City.resize_building()
+## adds) plus a fixed safety margin, so it always covers every building
+## variant at the CURRENT Building Height tier — never a fixed "9m" wall,
+## and never a literal infinite collider either.
+const PATH_BLOCK_WIDTH: float = 8.0
+const PATH_BLOCK_DEPTH: float = 4.0
+const PATH_BLOCK_BASE_HEIGHT: float = 35.0
+const PATH_BLOCK_HEIGHT_MARGIN: float = 8.0
 
 const LASER_TELEGRAPH: float = 0.8
 const LASER_ACTIVE: float = 0.5
 const LASER_RECOVERY: float = 0.6
+## Boss Revision: LASER_SWEEP is now a wide horizontal barrier plane
+## spanning both building lines (each footprint sits roughly 7.4-15.4m
+## either side of the road center — see City.create_chunk()), not just a
+## narrow 14m-wide beam over the road. Y stays a thin band (unchanged
+## thickness) so exactly one height tier is threatened, never the whole
+## vertical play space.
+const LASER_WIDTH: float = 32.0
+const LASER_THICKNESS: float = 0.6
+const LASER_DEPTH: float = 4.0
 
 const DRONE_GATE_TELEGRAPH: float = 1.0
 const DRONE_GATE_ACTIVE: float = 6.0
@@ -305,10 +330,14 @@ func cleanup_pattern_nodes() -> void:
 # is always left completely open (spec section 11: "양쪽 모두 동시에 막으면
 # 안 된다"). Non-wireable by design (spec section 12).
 # ---------------------------------------------------------------------
+func path_block_wall_height() -> float:
+ return PATH_BLOCK_BASE_HEIGHT + Rules.BUILDING_BONUS[city.high_level] + PATH_BLOCK_HEIGHT_MARGIN
+
 func spawn_path_block() -> void:
  closed_side = -closed_side
+ var wall_height: float = path_block_wall_height()
  var mesh_box := BoxMesh.new()
- mesh_box.size = Vector3(6.0, 9.0, 3.0)
+ mesh_box.size = Vector3(PATH_BLOCK_WIDTH, wall_height, PATH_BLOCK_DEPTH)
  var mesh := MeshInstance3D.new()
  mesh.mesh = mesh_box
  mesh.material_override = boss_material(Color("c94b3d"), true)
@@ -325,7 +354,11 @@ func spawn_path_block() -> void:
  add_child(block_node)
  block_node.add_child(mesh)
  block_node.add_child(collision)
- block_node.global_position = Vector3(closed_side * 11.4, 15.0, rider.position.z - 40.0)
+ # Ground (y=0) up to wall_height, same convention as City's own buildings
+ # (see City.resize_building(): mesh.position.y = height * 0.5, spanning
+ # 0..height) — so the wall reaches all the way down, not just the upper
+ # building band.
+ block_node.global_position = Vector3(closed_side * 11.4, wall_height * 0.5, rider.position.z - 40.0)
  block_node.body_entered.connect(_on_pattern_body_entered)
 
 # ---------------------------------------------------------------------
@@ -337,7 +370,7 @@ func spawn_laser() -> void:
  laser_low = not laser_low
  var band_y: float = 8.0 if laser_low else 30.0
  var mesh_box := BoxMesh.new()
- mesh_box.size = Vector3(14.0, 0.6, 3.0)
+ mesh_box.size = Vector3(LASER_WIDTH, LASER_THICKNESS, LASER_DEPTH)
  var mesh := MeshInstance3D.new()
  mesh.mesh = mesh_box
  mesh.material_override = laser_material(false)
