@@ -37,42 +37,58 @@ const INTRO_DURATION: float = 1.5
 const ESCAPE_DURATION: float = 2.0
 const COOLDOWN_DURATION: float = 2.0
 
-## Boss Pattern Revision V2 (spec sections 1-7): PATH_BLOCK is reframed from
-## "a wall you route around" into "this whole apartment side is briefly
-## lethal to touch" — a short, sharp punish rather than a long-standing
-## obstacle. Width still matches City.gd's own building footprint exactly
-## (see City.create_chunk()'s `box(..., Vector3(8, base_height, 14) ...)`),
-## height is still computed dynamically per the current Building Height
-## tier (see path_block_wall_height()), but the Z span is now much longer
-## (covers a real stretch of travel, not a single 4m slice) so the danger
-## reliably overlaps wherever the player actually is during the now much
-## shorter ACTIVE window, and ACTIVE itself is far shorter (a brief flash of
-## danger, not a multi-second wall).
-const PATH_BLOCK_TELEGRAPH: float = 0.8
-const PATH_BLOCK_ACTIVE: float = 1.5
+## Boss Pattern Revision V3 (spec sections 13-17): both A (PATH_BLOCK) and
+## B (LASER_PLANE) now telegraph with a shared "WARNING" flow — the hazard
+## volume appears at its real final position/size immediately, blinking
+## on/off WARNING_BLINK_COUNT times (collision OFF throughout), then snaps
+## to its bright ACTIVE look with collision on for exactly
+## WARNING_ACTIVE_DURATION. Warning and active always share the exact same
+## mesh/CollisionShape3D size — there is no separate "grow into place"
+## animation anymore (spec section 19: visual and collision must never
+## differ in extent).
+const WARNING_BLINK_COUNT: int = 3
+const WARNING_BLINK_ON_TIME: float = 0.18
+const WARNING_BLINK_OFF_TIME: float = 0.18
+const WARNING_TOTAL_DURATION: float = WARNING_BLINK_COUNT * (WARNING_BLINK_ON_TIME + WARNING_BLINK_OFF_TIME)
+const WARNING_ACTIVE_DURATION: float = 2.0
+
+## Boss Pattern Revision V3 (spec sections 1-6): PATH_BLOCK is now a true
+## vertical space limit — not just the building's own 8m-wide footprint, but
+## that building line PLUS roughly the near third of that side's own road
+## (the part closest to the sidewalk), so the player can't just hug the
+## road's inner edge to dodge it. The other side (building + its own road
+## third) is always left completely untouched.
+const PATH_BLOCK_TELEGRAPH: float = WARNING_TOTAL_DURATION
+const PATH_BLOCK_ACTIVE: float = WARNING_ACTIVE_DURATION
 const PATH_BLOCK_RECOVERY: float = 0.4
-const PATH_BLOCK_WIDTH: float = 8.0
-const PATH_BLOCK_DEPTH: float = 30.0
+## Matches City.create_chunk()'s own road (size.x=14, so half-width 7.0 from
+## center to edge) and building (center x=+-11.4, half-width 4.0, size.x=8)
+## geometry exactly — see path_block_x_bounds().
+const PATH_BLOCK_ROAD_HALF_WIDTH: float = 7.0
+const PATH_BLOCK_ROAD_FRACTION: float = 1.0 / 3.0
+const PATH_BLOCK_BUILDING_CENTER: float = 11.4
+const PATH_BLOCK_BUILDING_HALF_WIDTH: float = 4.0
+## Long enough to reliably overlap wherever the player actually is for the
+## whole WARNING+ACTIVE window regardless of travel speed — shared with
+## LASER_PLANE below since both are now "close off this whole zone for a
+## couple seconds" hazards rather than a thin slice/beam.
+const PATTERN_ZONE_DEPTH: float = 40.0
 const PATH_BLOCK_BASE_HEIGHT: float = 35.0
 const PATH_BLOCK_HEIGHT_MARGIN: float = 8.0
 
-## Boss Pattern Revision V2 (spec sections 8-15): LASER_PLANE drops the old
-## fixed y=8/y=30 alternation for a random height re-picked every spawn,
-## bounded so it always sits meaningfully between the road and the current
-## Building Height tier's usable ceiling (never right at the floor, never
-## above the buildings). It stays a wide horizontal slab spanning both
-## building lines (unchanged width), thin in Y (one height tier only).
-const LASER_TELEGRAPH: float = 0.8
-const LASER_ACTIVE: float = 1.5
-const LASER_RECOVERY: float = 0.5
+## Boss Pattern Revision V3 (spec sections 7-12): LASER_PLANE no longer
+## threatens a single thin height band — it splits the current Building
+## Height tier's usable height exactly in half and blocks one whole half
+## (UPPER or LOWER), spanning the full corridor width (both building lines
+## and the road between them), forcing a real up/down route choice rather
+## than a "duck under one line" dodge.
+const LASER_TELEGRAPH: float = WARNING_TOTAL_DURATION
+const LASER_ACTIVE: float = WARNING_ACTIVE_DURATION
+const LASER_RECOVERY: float = 0.4
 const LASER_WIDTH: float = 32.0
-const LASER_THICKNESS: float = 0.6
-const LASER_DEPTH: float = 6.0
-## Shared height bounds for both the laser plane's random height and each
-## Robot Barrage robot's random spawn height — "0..apartment height" per
-## spec, with a floor above ground clutter and a ceiling margin below the
-## rooftops so neither pattern ever reads as "at the floor" or "above the
-## buildings" (see random_safe_height()/laser_building_top()).
+## Height bounds Robot Barrage's own random spawn height still uses
+## (unchanged — spec section 23 keeps Pattern C exactly as-is). LASER_PLANE
+## itself no longer reads these; see laser_half_bounds().
 const LASER_MIN_HEIGHT: float = 3.0
 const LASER_TOP_MARGIN: float = 3.0
 
@@ -127,6 +143,9 @@ var pattern_index: int = 0
 ## Alternates every PATH_BLOCK so the closed side is never the same twice in
 ## a row and — most importantly — is never "both sides" (see spawn_path_block()).
 var closed_side: int = 1
+## Alternates every LASER_PLANE the same way closed_side does — never the
+## same half twice in a row (see spawn_laser_plane()).
+var laser_upper: bool = false
 var barrage_launch_index: int = 0
 var barrage_active_elapsed: float = 0.0
 
@@ -182,6 +201,48 @@ func boss_material(color: Color, glow: bool = false) -> StandardMaterial3D:
   mat.emission_energy_multiplier = 2.0
  return mat
 
+# ---------------------------------------------------------------------
+# Shared WARNING telegraph (spec sections 13-17): a red, translucent,
+# diagonal-hatched volume at the hazard's real final position/size, blinking
+# WARNING_BLINK_COUNT times before the hazard goes live. Used by both
+# PATH_BLOCK and LASER_PLANE.
+# ---------------------------------------------------------------------
+var _warning_hatch_texture: ImageTexture
+
+## A small tileable diagonal-stripe pattern generated once and cached —
+## Graybox-appropriate (no external texture asset), applied as the warning
+## volume's albedo texture so it reads as "hazard tape", not a flat box.
+func warning_hatch_texture() -> ImageTexture:
+ if _warning_hatch_texture == null:
+  var size := 32
+  var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+  for y in range(size):
+   for x in range(size):
+    var on_stripe: bool = posmod(x + y, 8) < 3
+    img.set_pixel(x, y, Color(1, 1, 1, 1) if on_stripe else Color(1, 1, 1, 0))
+  _warning_hatch_texture = ImageTexture.create_from_image(img)
+ return _warning_hatch_texture
+
+func warning_material(size: Vector3) -> StandardMaterial3D:
+ var mat := StandardMaterial3D.new()
+ mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+ mat.albedo_color = Color(1.0, 0.15, 0.15, 0.4)
+ mat.albedo_texture = warning_hatch_texture()
+ # Tile roughly every 4m regardless of this particular hazard's own
+ # dimensions, so the hatch density reads consistently between the (tall,
+ # narrow) PATH_BLOCK volume and the (wide, flat) LASER_PLANE volume.
+ mat.uv1_scale = Vector3(maxf(1.0, size.x / 4.0), maxf(1.0, size.y / 4.0), 1.0)
+ mat.emission_enabled = true
+ mat.emission = Color(1.0, 0.2, 0.2)
+ mat.emission_energy_multiplier = 0.6
+ return mat
+
+## True during the "on" half of each blink cycle; false during "off". Called
+## with elapsed time since the telegraph phase began — see tick_pattern_visual().
+func warning_blink_visible(elapsed: float) -> bool:
+ var cycle: float = WARNING_BLINK_ON_TIME + WARNING_BLINK_OFF_TIME
+ return fmod(maxf(0.0, elapsed), cycle) < WARNING_BLINK_ON_TIME
+
 ## Resets to a fresh encounter — called once per Main.create_world() (a new
 ## Rider/City already gets built fresh there; this mirrors that for the boss).
 func reset() -> void:
@@ -191,6 +252,7 @@ func reset() -> void:
  phase_timer = 0.0
  pattern_index = 0
  closed_side = 1
+ laser_upper = false
  barrage_launch_index = 0
  barrage_active_elapsed = 0.0
  cleanup_pattern_nodes()
@@ -331,15 +393,26 @@ func recovery_duration(name: String) -> float:
   PATTERN_ROBOT_BARRAGE: return ROBOT_BARRAGE_RECOVERY
  return 0.4
 
+## enabled=true is the TELEGRAPH->ACTIVE transition (warning blinking ends,
+## hazard goes live: bright material, collision on, mesh continuously
+## visible). enabled=false is ACTIVE->RECOVERY (collision off, hazard hidden
+## — spec section 17: "Recovery: fade/remove").
 func set_pattern_collision(enabled: bool) -> void:
  match pattern:
   PATTERN_PATH_BLOCK:
    if is_instance_valid(block_node):
     block_node.monitoring = enabled
+    var mesh: MeshInstance3D = block_node.get_child(0)
+    mesh.visible = enabled
+    if enabled:
+     mesh.material_override = boss_material(Color("c94b3d"), true)
   PATTERN_LASER_PLANE:
    if is_instance_valid(laser_node):
     laser_node.monitoring = enabled
-    laser_node.visible = enabled
+    var mesh: MeshInstance3D = laser_node.get_child(0)
+    mesh.visible = enabled
+    if enabled:
+     mesh.material_override = laser_material()
   PATTERN_ROBOT_BARRAGE:
    pass # each robot is collidable (a real PhysicsBody3D) from the instant it's launched; nothing to toggle here.
 
@@ -348,8 +421,11 @@ func tick_pattern_visual() -> void:
   PATTERN_PATH_BLOCK:
    if is_instance_valid(block_node) and pattern_phase == PHASE_TELEGRAPH:
     var mesh: MeshInstance3D = block_node.get_child(0)
-    var t: float = 1.0 - clampf(phase_timer / PATH_BLOCK_TELEGRAPH, 0.0, 1.0)
-    mesh.scale.x = lerpf(0.05, 1.0, t)
+    mesh.visible = warning_blink_visible(PATH_BLOCK_TELEGRAPH - phase_timer)
+  PATTERN_LASER_PLANE:
+   if is_instance_valid(laser_node) and pattern_phase == PHASE_TELEGRAPH:
+    var mesh: MeshInstance3D = laser_node.get_child(0)
+    mesh.visible = warning_blink_visible(LASER_TELEGRAPH - phase_timer)
   PATTERN_ROBOT_BARRAGE:
    # Boss beacon flash (spec section 27) as the pre-launch telegraph — no
    # new node, just brightening the existing beacon mesh built in
@@ -388,15 +464,28 @@ func cleanup_barrage_robots() -> void:
 func path_block_wall_height() -> float:
  return PATH_BLOCK_BASE_HEIGHT + Rules.BUILDING_BONUS[city.high_level] + PATH_BLOCK_HEIGHT_MARGIN
 
+## The closed side's X span: that building line's own footprint PLUS the
+## near third of that side's road (the part closest to the sidewalk) — spec
+## sections 2/5. Returns (min_x, max_x), always correctly ordered regardless
+## of `side`'s sign, and never crosses the road's center line since even the
+## innermost edge (the road-third boundary) stays a full
+## PATH_BLOCK_ROAD_HALF_WIDTH*(1-1/3) = ~4.67m from center.
+func path_block_x_bounds(side: int) -> Vector2:
+ var building_outer: float = side * (PATH_BLOCK_BUILDING_CENTER + PATH_BLOCK_BUILDING_HALF_WIDTH)
+ var road_inner: float = side * (PATH_BLOCK_ROAD_HALF_WIDTH * (1.0 - PATH_BLOCK_ROAD_FRACTION))
+ return Vector2(minf(building_outer, road_inner), maxf(building_outer, road_inner))
+
 func spawn_path_block() -> void:
  closed_side = -closed_side
  var wall_height: float = path_block_wall_height()
+ var bounds: Vector2 = path_block_x_bounds(closed_side)
+ var region_width: float = bounds.y - bounds.x
+ var region_center_x: float = (bounds.x + bounds.y) * 0.5
  var mesh_box := BoxMesh.new()
- mesh_box.size = Vector3(PATH_BLOCK_WIDTH, wall_height, PATH_BLOCK_DEPTH)
+ mesh_box.size = Vector3(region_width, wall_height, PATTERN_ZONE_DEPTH)
  var mesh := MeshInstance3D.new()
  mesh.mesh = mesh_box
- mesh.material_override = boss_material(Color("c94b3d"), true)
- mesh.scale = Vector3(0.05, 1.0, 1.0)
+ mesh.material_override = warning_material(mesh_box.size)
  var collision := CollisionShape3D.new()
  var shape := BoxShape3D.new()
  shape.size = mesh_box.size
@@ -412,27 +501,26 @@ func spawn_path_block() -> void:
  # Ground (y=0) up to wall_height, same convention as City's own buildings
  # (see City.resize_building(): mesh.position.y = height * 0.5, spanning
  # 0..height) — so the hazard reaches all the way down, not just the upper
- # building band. A long Z span (PATH_BLOCK_DEPTH) centered a little ahead
+ # building band. A long Z span (PATTERN_ZONE_DEPTH) centered a little ahead
  # of the player means it reliably overlaps wherever they actually are
- # during the short telegraph+active window, rather than a thin slice they
- # could easily have already passed.
- block_node.global_position = Vector3(closed_side * 11.4, wall_height * 0.5, rider.position.z - 40.0)
+ # during the WARNING+ACTIVE window, rather than a thin slice they could
+ # easily have already passed.
+ block_node.global_position = Vector3(region_center_x, wall_height * 0.5, rider.position.z - 40.0)
  block_node.body_entered.connect(_on_pattern_body_entered)
 
 # ---------------------------------------------------------------------
-# B. LASER PLANE — a wide horizontal barrier slab at a random height,
-# re-picked every spawn, spanning both building lines (spec sections 8-15).
-# Always leaves both "above the plane" and "below the plane" as real,
-# traversable routes — it only ever threatens one height band.
+# B. LASER PLANE — splits the current Building Height tier's usable height
+# exactly in half and makes one whole half (UPPER or LOWER) a hazard volume
+# spanning the full corridor width (spec sections 7-12). Always leaves the
+# other half as a real, traversable route.
 # ---------------------------------------------------------------------
 func laser_building_top() -> float:
  return PATH_BLOCK_BASE_HEIGHT + Rules.BUILDING_BONUS[city.high_level]
 
-## Shared by the laser plane and Robot Barrage spawn heights: a safe,
-## meaningful band between the road (LASER_MIN_HEIGHT above it) and the
-## current Building Height tier's usable ceiling (LASER_TOP_MARGIN below
-## the rooftops) — never degenerates to "basically the floor" or "basically
-## the roof" regardless of high_level (0-3).
+## Shared by Robot Barrage's random spawn height (Pattern C, unchanged by
+## this revision): a safe, meaningful band between the road
+## (LASER_MIN_HEIGHT above it) and the current Building Height tier's usable
+## ceiling (LASER_TOP_MARGIN below the rooftops).
 func random_safe_height() -> float:
  var top: float = laser_building_top() - LASER_TOP_MARGIN
  var bottom: float = LASER_MIN_HEIGHT
@@ -440,13 +528,26 @@ func random_safe_height() -> float:
   return bottom
  return rng.randf_range(bottom, top)
 
+## (bottom, top) of whichever half is selected — UPPER is the top half of
+## the current usable building height, LOWER is the bottom half. Splitting
+## exactly at building-top/2 means both halves scale together with
+## high_level (0-3), and the split point is always well-defined since
+## laser_building_top() > 0 always.
+func laser_half_bounds(upper: bool) -> Vector2:
+ var top: float = laser_building_top()
+ var mid: float = top * 0.5
+ return Vector2(mid, top) if upper else Vector2(0.0, mid)
+
 func spawn_laser_plane() -> void:
- var band_y: float = random_safe_height()
+ laser_upper = not laser_upper
+ var bounds: Vector2 = laser_half_bounds(laser_upper)
+ var half_height: float = bounds.y - bounds.x
+ var center_y: float = (bounds.x + bounds.y) * 0.5
  var mesh_box := BoxMesh.new()
- mesh_box.size = Vector3(LASER_WIDTH, LASER_THICKNESS, LASER_DEPTH)
+ mesh_box.size = Vector3(LASER_WIDTH, half_height, PATTERN_ZONE_DEPTH)
  var mesh := MeshInstance3D.new()
  mesh.mesh = mesh_box
- mesh.material_override = laser_material(false)
+ mesh.material_override = warning_material(mesh_box.size)
  var collision := CollisionShape3D.new()
  var shape := BoxShape3D.new()
  shape.size = mesh_box.size
@@ -459,18 +560,18 @@ func spawn_laser_plane() -> void:
  add_child(laser_node)
  laser_node.add_child(mesh)
  laser_node.add_child(collision)
- laser_node.global_position = Vector3(0, band_y, rider.position.z - 35.0)
+ laser_node.global_position = Vector3(0, center_y, rider.position.z - 40.0)
  laser_node.body_entered.connect(_on_pattern_body_entered)
 
-## `active`=false is the dim world-space telegraph (PHASE C spec section 14:
-## "0.5~1.0초 약한 붉은 line"); `active`=true is the bright, collidable beam.
-func laser_material(active: bool) -> StandardMaterial3D:
+## The bright, collidable-and-live look (the WARNING phase uses
+## warning_material() instead — see set_pattern_collision()).
+func laser_material() -> StandardMaterial3D:
  var mat := StandardMaterial3D.new()
  mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
- mat.albedo_color = Color(1.0, 0.25, 0.2, 0.9 if active else 0.25)
+ mat.albedo_color = Color(1.0, 0.25, 0.2, 0.9)
  mat.emission_enabled = true
  mat.emission = Color(1.0, 0.25, 0.2)
- mat.emission_energy_multiplier = 2.0 if active else 0.4
+ mat.emission_energy_multiplier = 2.0
  return mat
 
 func _on_pattern_body_entered(body: Node3D) -> void:

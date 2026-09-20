@@ -98,24 +98,30 @@ func run() -> void:
  check(game.boss.pattern == "PATH_BLOCK", "the first ACTIVE pattern is PATH_BLOCK (deterministic order, not random)")
 
  # ==================================================================
- # Pattern A: PATH BLOCK (redefined: a brief whole-side lethal zone)
+ # Pattern A: PATH BLOCK (V3: whole-side vertical space limit — building
+ # line + ~1/3 of that side's road, warning-blink telegraph, 2.0s active)
  # ==================================================================
  check(game.boss.closed_side == 1 or game.boss.closed_side == -1, "PATH_BLOCK always closes exactly one side")
  check(is_instance_valid(game.boss.block_node), "a PATH_BLOCK hazard volume exists")
  check(not game.boss.block_node.monitoring, "the hazard has no collision yet during its telegraph")
  var closed_side_first: int = game.boss.closed_side
  var open_side: int = -closed_side_first
- check(absf(game.boss.block_node.global_position.x - closed_side_first * 11.4) < 0.01, "the hazard sits on the closed side's building line")
- check(not is_equal_approx(game.boss.block_node.global_position.x, open_side * 11.4), "fixture sanity: the open side has no hazard at the same position")
+
+ var bounds: Vector2 = game.boss.path_block_x_bounds(closed_side_first)
+ check(signi(bounds.x) == closed_side_first and signi(bounds.y) == closed_side_first, "the hazard region stays entirely on the closed side (never crosses the road's center line into the open side)")
+ var building_far_edge: float = closed_side_first * (CityBoss.PATH_BLOCK_BUILDING_CENTER + CityBoss.PATH_BLOCK_BUILDING_HALF_WIDTH)
+ check(is_equal_approx(bounds.x, building_far_edge) or is_equal_approx(bounds.y, building_far_edge), "the hazard region reaches all the way to the closed building line's own far edge")
+ var road_third_edge: float = closed_side_first * (CityBoss.PATH_BLOCK_ROAD_HALF_WIDTH * (1.0 - CityBoss.PATH_BLOCK_ROAD_FRACTION))
+ check(is_equal_approx(bounds.x, road_third_edge) or is_equal_approx(bounds.y, road_third_edge), "the hazard region's inner edge stops at roughly a third of that side's road, matching the spec exactly")
 
  var block_shape: BoxShape3D = game.boss.block_node.get_child(1).shape
- check(is_equal_approx(block_shape.size.x, 8.0), "the hazard's width matches the closed building line's own footprint exactly (never spills onto the road or the open side)")
+ var block_mesh: MeshInstance3D = game.boss.block_node.get_child(0)
+ check(is_equal_approx(block_shape.size.x, bounds.y - bounds.x), "the hazard's collision width matches the computed building+road-third region exactly")
+ check(is_equal_approx(block_mesh.mesh.size.x, block_shape.size.x) and is_equal_approx(block_mesh.mesh.size.y, block_shape.size.y) and is_equal_approx(block_mesh.mesh.size.z, block_shape.size.z), "the hazard's visible mesh and its collision volume are exactly the same size")
+ check(is_equal_approx(block_shape.size.z, CityBoss.PATTERN_ZONE_DEPTH), "the hazard's Z depth covers the full pattern zone, not a thin slice")
  var current_max_building_height: float = 35.0 + Rules.BUILDING_BONUS[game.city.high_level]
  check(block_shape.size.y >= current_max_building_height, "the hazard's height covers every building variant at the current Building Height tier, not a fixed value")
- check(is_equal_approx(game.boss.block_node.global_position.y, block_shape.size.y * 0.5), "the hazard spans from ground level up (no gap to duck under)")
- var wall_left: float = closed_side_first * 11.4 - block_shape.size.x * 0.5
- var wall_right: float = closed_side_first * 11.4 + block_shape.size.x * 0.5
- check(signi(wall_left) == signi(wall_right) and absf(wall_left) > 6.8, "the hazard never crosses the road center line (stays entirely on its own side)")
+ check(is_equal_approx(game.boss.block_node.global_position.y, block_shape.size.y * 0.5), "the hazard spans from ground level up (no gap to duck under, and no gap to fly over)")
 
  # The height formula must scale with EVERY Building Height tier (0-3).
  for high_level in range(4):
@@ -124,10 +130,28 @@ func run() -> void:
   check(is_equal_approx(game.boss.path_block_wall_height(), expected), "the hazard height formula covers Building Height tier %d with its own margin" % high_level)
  game.city.apply_height_level(3)
 
- check(game.boss.active_duration("PATH_BLOCK") >= 1.0 and game.boss.active_duration("PATH_BLOCK") <= 2.0, "PATH_BLOCK's active duration is the short 1-2s punish window, not a multi-second wall")
+ check(is_equal_approx(game.boss.active_duration("PATH_BLOCK"), 2.0), "PATH_BLOCK's active duration is exactly 2.0 seconds")
 
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
- check(game.boss.pattern_phase == "ACTIVE" and game.boss.block_node.monitoring, "the hazard becomes lethal exactly once its telegraph ends")
+ # Warning: exactly WARNING_BLINK_COUNT on/off blinks, collision OFF
+ # throughout, ending exactly at the telegraph->active boundary.
+ var sample_dt: float = 0.01
+ var t: float = 0.0
+ var prev_blink: bool = game.boss.warning_blink_visible(0.0)
+ var blink_transitions: int = 0
+ while t < CityBoss.WARNING_TOTAL_DURATION:
+  var cur_blink: bool = game.boss.warning_blink_visible(t)
+  if cur_blink != prev_blink:
+   blink_transitions += 1
+  prev_blink = cur_blink
+  t += sample_dt
+ check(blink_transitions == CityBoss.WARNING_BLINK_COUNT * 2 - 1, "the warning blinks ON/OFF/ON/OFF/ON/OFF exactly %d times before going active" % CityBoss.WARNING_BLINK_COUNT)
+ check(is_equal_approx(CityBoss.PATH_BLOCK_TELEGRAPH, CityBoss.WARNING_TOTAL_DURATION), "PATH_BLOCK's telegraph is exactly the shared 3-blink warning duration")
+
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH * 0.5)
+ check(not game.boss.block_node.monitoring, "collision stays OFF partway through the warning blink, regardless of blink phase")
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH * 0.5 + 0.05)
+ check(game.boss.pattern_phase == "ACTIVE" and game.boss.block_node.monitoring, "the hazard becomes lethal exactly once the warning blinking ends")
+ check(game.boss.block_node.get_child(0).visible, "the hazard is continuously visible (no more blinking) once active")
 
  # Wire aim/attach itself is completely unaffected: a real building on the
  # OPEN side must still be a valid, connectable wire target while PATH_BLOCK
@@ -148,6 +172,9 @@ func run() -> void:
  check(game.rider.mode != "dead", "standing on the PATH_BLOCK's open side is safe (at least one route always exists)")
 
  # Armor absorbs a PATH_BLOCK hit exactly like any other obstacle collision.
+ # Rules.ARMOR_PROTECTION (2.0s) exactly covers the whole 2.0s active
+ # window, so a player pinned in the hazard for its entire duration still
+ # only ever loses one charge (spec section 18).
  await fixture()
  game.city.practice = false
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
@@ -157,6 +184,9 @@ func run() -> void:
  check(game.rider.mode != "dead" and game.rider.armor_charges == 0, "armor absorbs a PATH_BLOCK hit exactly like any other obstacle collision")
  game.boss._on_pattern_body_entered(game.rider)
  check(game.rider.mode != "dead", "repeated PATH_BLOCK contact within the same invincibility window is suppressed, not stacked")
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_ACTIVE - 0.05)
+ game.boss._on_pattern_body_entered(game.rider)
+ check(game.rider.mode != "dead", "armor's protection window covers the entire 2.0s active duration, not just the first hit")
 
  await fixture()
  game.city.practice = false
@@ -167,7 +197,9 @@ func run() -> void:
  check(game.rider.mode == "dead", "without armor, touching the closed side during PATH_BLOCK is Game Over, same as any obstacle")
 
  # ==================================================================
- # Pattern B: LASER PLANE (redefined: random height, not fixed 8/30)
+ # Pattern B: LASER PLANE (V3: splits usable building height exactly in
+ # half; UPPER/LOWER alternates, full corridor width, warning blink,
+ # 2.0s active)
  # ==================================================================
  await fixture()
  game.city.practice = false
@@ -175,15 +207,18 @@ func run() -> void:
  game.rider.position = Vector3(0, 20, -100)
  game.boss.rider = game.rider
  game.boss.city = game.city
- var sampled_heights: Array[float] = []
- for i in range(24):
-  game.boss.spawn_laser_plane()
-  sampled_heights.append(game.boss.laser_node.global_position.y)
-  game.boss.laser_node.queue_free()
- var laser_top_bound: float = game.boss.laser_building_top() - CityBoss.LASER_TOP_MARGIN
- check(sampled_heights.all(func(h: float): return h >= CityBoss.LASER_MIN_HEIGHT - 0.01 and h <= laser_top_bound + 0.01), "every laser height stays within the safe 0..apartment-height range")
- check(sampled_heights.min() < sampled_heights.max(), "laser height is genuinely randomized across spawns, not fixed to two bands")
- check(not sampled_heights.all(func(h: float): return is_equal_approx(h, 8.0) or is_equal_approx(h, 30.0)), "laser height is no longer restricted to the old fixed 8/30 bands")
+ var top_now: float = game.boss.laser_building_top()
+ var mid_now: float = top_now * 0.5
+
+ game.boss.spawn_laser_plane()
+ var first_upper: bool = game.boss.laser_upper
+ var first_bounds: Vector2 = game.boss.laser_half_bounds(first_upper)
+ check(is_equal_approx(first_bounds.x, mid_now if first_upper else 0.0) and is_equal_approx(first_bounds.y, top_now if first_upper else mid_now), "the selected half's bounds are exactly [mid,top] for UPPER or [0,mid] for LOWER")
+ game.boss.laser_node.queue_free()
+
+ game.boss.spawn_laser_plane()
+ check(game.boss.laser_upper != first_upper, "LASER_PLANE alternates between UPPER and LOWER every spawn, never repeating the same half twice in a row")
+ game.boss.laser_node.queue_free()
 
  await fixture()
  game.city.practice = false
@@ -197,28 +232,40 @@ func run() -> void:
  var laser_shape: BoxShape3D = game.boss.laser_node.get_child(1).shape
  check(is_equal_approx(laser_mesh.mesh.size.x, laser_shape.size.x) and is_equal_approx(laser_mesh.mesh.size.y, laser_shape.size.y) and is_equal_approx(laser_mesh.mesh.size.z, laser_shape.size.z), "the laser's visible mesh and its collision volume are exactly the same size")
  check(laser_shape.size.x >= 30.0, "the laser spans the full corridor width, both building lines and the road between them")
- check(laser_shape.size.y <= 1.5, "the laser stays a thin height band, never a thick slab that could bleed into another route")
- check(game.boss.active_duration("LASER_PLANE") >= 1.0 and game.boss.active_duration("LASER_PLANE") <= 2.0, "LASER_PLANE's active duration is a real 1-2s window")
+ var current_top: float = game.boss.laser_building_top()
+ check(is_equal_approx(laser_shape.size.y, current_top * 0.5), "the laser volume is a full half of the current usable building height, not a thin slab")
+ check(is_equal_approx(laser_shape.size.z, CityBoss.PATTERN_ZONE_DEPTH), "the laser's Z depth covers the full pattern zone, not a thin slice")
+ check(is_equal_approx(game.boss.active_duration("LASER_PLANE"), 2.0), "LASER_PLANE's active duration is exactly 2.0 seconds")
+ check(is_equal_approx(CityBoss.LASER_TELEGRAPH, CityBoss.WARNING_TOTAL_DURATION), "LASER_PLANE's telegraph is exactly the shared 3-blink warning duration")
 
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.LASER_TELEGRAPH + 0.2)
- check(game.boss.pattern_phase == "ACTIVE" and game.boss.laser_node.monitoring, "the laser becomes active (collidable) exactly after its telegraph duration")
- check(game.boss.laser_node.global_position.is_equal_approx(laser_pos_before_active), "the laser doesn't move between telegraph and active — same plane, just now live")
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.LASER_TELEGRAPH * 0.5)
+ check(not game.boss.laser_node.monitoring, "collision stays OFF partway through the warning blink")
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.LASER_TELEGRAPH * 0.5 + 0.05)
+ check(game.boss.pattern_phase == "ACTIVE" and game.boss.laser_node.monitoring, "the laser becomes active (collidable) exactly once the warning blinking ends")
+ check(game.boss.laser_node.global_position.is_equal_approx(laser_pos_before_active), "the laser doesn't move between telegraph and active — same volume, just now live")
+ check(game.boss.laser_node.get_child(0).visible, "the laser is continuously visible (no more blinking) once active")
 
- # A route above AND a route below the plane must both remain structurally
- # guaranteed (spec section 12: the laser must never threaten the whole
- # vertical range at once). Checked against random_safe_height()'s own
- # bounds rather than one specific nearby building's real (independently
- # randomized, and possibly still Building-Height-tier-0 from this fixture's
- # very first chunk) height — that avoids coupling this check to whichever
- # building instance happens to be nearby, which is a real hazard/route
- # concern for THIS pattern regardless of ambient city generation.
- var laser_y: float = game.boss.laser_node.global_position.y
- check(laser_y >= CityBoss.LASER_MIN_HEIGHT - 0.01, "the laser plane respects its minimum height floor")
- check(laser_y <= laser_top_bound + 0.01, "the laser plane respects its maximum height ceiling")
- check(laser_y - 2.5 > 0.0, "there is real room below the laser plane down to the minimum aimable wire height (a below route exists)")
- check((laser_top_bound + CityBoss.LASER_TOP_MARGIN) - laser_y >= CityBoss.LASER_TOP_MARGIN - 0.01, "there is always at least LASER_TOP_MARGIN of room above the laser plane up to the tier's usable ceiling (an above route exists)")
+ # The OTHER half must remain a real, hazard-free route: UPPER and LOWER
+ # bounds partition [0, top] exactly, with no gap and no overlap, so
+ # whichever half ISN'T currently selected is guaranteed completely free of
+ # this hazard (spec section 12 — never both halves at once).
+ var active_upper: bool = game.boss.laser_upper
+ var active_bounds: Vector2 = game.boss.laser_half_bounds(active_upper)
+ var safe_bounds: Vector2 = game.boss.laser_half_bounds(not active_upper)
+ check(is_equal_approx(active_bounds.x, safe_bounds.y) or is_equal_approx(active_bounds.y, safe_bounds.x), "the active half and the safe half share a boundary with no gap and no overlap between them")
+ check(is_equal_approx(minf(active_bounds.x, safe_bounds.x), 0.0) and is_equal_approx(maxf(active_bounds.y, safe_bounds.y), current_top), "the two halves together span the entire usable height, from the road up to the current tier's ceiling")
 
- # Armor absorbs one laser hit.
+ # A real physics check: standing in the SAFE half is fine even while the
+ # laser is fully active in the other half.
+ game.rider.position = Vector3(0, (safe_bounds.x + safe_bounds.y) * 0.5, game.boss.laser_node.global_position.z)
+ game.rider.velocity = Vector3.ZERO
+ game.rider.invincible = 0
+ game.rider.armor_charges = 0
+ await frames(4)
+ check(game.rider.mode != "dead", "standing in the safe half is fine while LASER_PLANE is fully active in the other half")
+
+ # Armor absorbs one laser hit; the same protection window covers the
+ # entire 2.0s active duration.
  game.rider.upgrade("armor")
  check(game.rider.armor_charges == 1, "fixture: rider carries one armor charge")
  game.rider.invincible = 0
