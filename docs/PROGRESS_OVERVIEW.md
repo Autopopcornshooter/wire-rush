@@ -10,6 +10,8 @@
 
 2026-09-20 (PHASE C BOSS REVISION — Path Block/Laser 형태 확장 + Boss 길이 연장). `DifficultyDirector.CITY_BOSS_ESCAPE_DISTANCE`를 700m→**1500m**로 확장(Boss clear 3900m→**4700m**, Rest Area는 파생 상수 그대로 따라가 **4700~5100m**로 자동 이동 — 고정 숫자 중복 없이 `city_boss_clear_distance()`/`rest_area_end_distance()`만 수정). PATH_BLOCK을 6×9×3m 작은 박스에서 **한쪽 건물 라인 전체를 덮는 세로 벽**(폭 8m=건물 폭과 동일, 높이는 `City.high_level`에 따라 매 스폰 시 동적 계산 — `35(최대 base_height) + Rules.BUILDING_BONUS[high_level] + 8(여유분)`, 바닥 y=0부터 시작)으로 변경. LASER_SWEEP을 14m 폭의 얇은 빔에서 **양쪽 건물 라인 전체를 가로지르는 32m 폭의 면**(Y 두께는 0.6m로 그대로, 한 높이대만 위협)으로 변경. 두 패턴 모두 telegraph→active→recovery 단계, non-hookable, `Rider.hurt()` 재사용, DRONE_GATE는 완전히 무변경. 이 변경으로 Sky Gap/Traffic Surge 억제 구간과 Signal Story trigger는 파생 상수를 그대로 참조하므로 코드 수정 없이 자동으로 따라감.
 
+2026-09-21 (PHASE C BOSS PATTERN REVISION V2 — Path Block/Laser 재정의 + Drone Gate 삭제 후 Robot Barrage 신설). PATH_BLOCK을 "루트를 막는 벽" 개념에서 **"한쪽 아파트 라인 전체가 잠깐(telegraph 0.8s/active 1.5s/recovery 0.4s) 접촉 즉사 구역이 되는" 개념**으로 재정의(폭/높이 계산식은 그대로, Z 범위만 4m→30m로 넓혀 짧아진 active 구간에도 실제로 플레이어 위치와 겹치도록 함). LASER_SWEEP을 y=8/30 고정 2단 교대에서 **매 스폰 시 0..건물 높이 사이 랜덤 높이**(`LASER_MIN_HEIGHT`/`LASER_TOP_MARGIN`로 경계, `city_boss.gd` 자체 RandomNumberGenerator 사용) 방식으로 변경하고 이름을 `LASER_PLANE`으로 바꿈, active를 0.5s→1.5s로 늘림. **DRONE_GATE를 완전히 제거**하고 새 패턴 **ROBOT_BARRAGE**로 교체 — 보스가 좌/중/우에서 장애물 로봇 3기를 0/0.45/0.9초 간격으로 순차 발사, 각 로봇은 발사 순간 플레이어 위치+속도로 소폭 선행 조준한 뒤 그 방향으로 고정 직진(호밍 없음), `City.spawn_vehicle()`과 동일하게 `AnimatableBody3D(sync_to_physics=false)`로 구현해 기존 차량과 같은 이동 충돌 방식을 재사용(`City.obstacle()`의 정지형 StaticBody3D는 사용하지 않음 — 움직이는 StaticBody3D는 충돌이 불안정해지는 기존에 확인된 이슈). 로봇은 패턴의 telegraph/active/recovery/cooldown 주기와 무관하게 자기 수명(6초) 또는 플레이어보다 충분히 뒤처지면 개별적으로 정리되며, Boss ESCAPE 진입 시 강제 정리됨. Boss 거리(3200/4700m)·Rest Area·Player Progression·Difficulty Director는 전혀 변경 없음.
+
 ## 실행
 
 - 프로젝트: `D:/GameProject/WireSwing/project.godot`
@@ -31,7 +33,7 @@
 | 배치 | 건물 간격 방식으로 고정(128m 구역마다 한쪽 벽 제거). 연습 모드는 항상 양쪽 벽 |
 | City 난이도 | Difficulty Director가 거리만으로 4단계 진행(0~500/500~1000/1000~2000/2000m+). Player Progression과 완전히 독립 — 업그레이드를 선택해도 난이도는 안 변하고, 거리가 늘어도 플레이어 tier는 안 변함 |
 | City Event | SKY_GAP(2000m 이후, 3청크 길이, 10청크 주기 쿨다운: 건물 없음·드론만·차량 없음)과 TRAFFIC_SURGE(500m 이후 확률 등장, 3청크 길이: 차량 밀도만 일시 증가) 2종. 둘 다 종료 후 정상 City로 복귀, 경고 UI 없음 |
-| City Boss | "Police Interceptor"(그레이박스), 3200m 시작·1500m 진행(4700m) 시 클리어. HP/전투 없음 — PATH_BLOCK(한쪽 건물 라인 전체를 바닥~현재 최고높이+여유분 벽으로 차단)→LASER_SWEEP(양쪽 건물 라인을 가로지르는 넓은 면, 한 높이대만, telegraph 有, 방어구 1회 방어)→DRONE_GATE(기존 police drone 재사용, 무변경) 고정 순서 반복. 항상 기본 사거리로 통과 가능한 route 보장. 클리어 시 후퇴·despawn |
+| City Boss | "Police Interceptor"(그레이박스), 3200m 시작·1500m 진행(4700m) 시 클리어. HP/전투 없음 — PATH_BLOCK(한쪽 아파트 라인 전체가 1.5초간 접촉 즉사)→LASER_PLANE(양쪽 건물 라인을 가로지르는 넓은 면, 매번 랜덤 높이, telegraph 有, 방어구 1회 방어)→ROBOT_BARRAGE(장애물 로봇 3기 순차 직진 발사, 발사 시점 선행조준 후 비호밍, 자체 수명으로 정리) 고정 순서 반복. 항상 기본 사거리로 통과 가능한 route 보장. 클리어 시 후퇴·despawn |
 | Rest Area | Boss 클리어 후 400m, hazard·차량·drone 없음, Sky Gap/Traffic Surge 없음. 물리·이동은 그대로 유지, 자동 이동·시네마틱 카메라 없음. 끝나면 CITY_COMPLETE + Wasteland 진입 장식 게이트 |
 | Signal Story | City 시작/1500m/Boss 클리어 총 3개 자막, 한 run에 1회씩만. 하단 소형 자막(3.5초, 페이드), 게임 멈춤 없음. 한국어/영어 지원 |
 | 업그레이드 | 일반 업그레이드(와이어/기동성/모멘텀/생존 4카테고리, 12종)와 코어 업그레이드(이중 점프·롤러스케이트·충격 방어구 3종, 5레벨마다 1회)로 분리. 레벨업은 즉시 멈추지 않고 종류(일반/코어)를 유지한 채 대기 스택에 쌓이며, G 키로 쌓인 순서대로 소비. 건물 높이는 이 목록에서 제외(아래 건물 항목 참고) |

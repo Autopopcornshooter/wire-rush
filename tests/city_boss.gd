@@ -4,6 +4,11 @@ extends SceneTree
 ## (PHASE A) or the Difficulty Director's tier/event pure functions beyond
 ## reading them (PHASE B) — see the "independence"-flavored checks below,
 ## which mirror tests/difficulty.gd's own Player/World separation tests.
+##
+## Boss Pattern Revision V2: PATH_BLOCK/LASER_PLANE keep their Area3D-based
+## mechanism (resized/retimed only); DRONE_GATE is gone entirely, replaced
+## by ROBOT_BARRAGE (moving AnimatableBody3D projectiles) — see
+## scripts/city_boss.gd's own doc comments for the full reasoning.
 const Rules = preload("res://scripts/rules.gd")
 const DifficultyDirector = preload("res://scripts/difficulty_director.gd")
 const CityBoss = preload("res://scripts/city_boss.gd")
@@ -51,11 +56,24 @@ func advance_boss(distance: float, seconds: float) -> void:
   if elapsed >= seconds:
    break
 
+## Cumulative time (from ACTIVE start) needed to reach the start of each
+## pattern in the fixed sequence, derived from the pattern durations
+## themselves rather than hardcoded, so a future duration tweak doesn't
+## silently desync these tests.
+func time_to_pattern_start(index: int) -> float:
+ var t: float = 0.0
+ for i in range(index):
+  var name: String = CityBoss.PATTERN_SEQUENCE[i]
+  t += game.boss.telegraph_duration(name) + game.boss.active_duration(name) + game.boss.recovery_duration(name) + CityBoss.COOLDOWN_DURATION
+ return t
+
 func run() -> void:
  game = load("res://scenes/main.tscn").instantiate()
  root.add_child(game)
  game.set_physics_process(false)
  game.set_process(false)
+
+ check(CityBoss.PATTERN_SEQUENCE == ["PATH_BLOCK", "LASER_PLANE", "ROBOT_BARRAGE"], "the boss pattern sequence is PATH_BLOCK -> LASER_PLANE -> ROBOT_BARRAGE (DRONE_GATE is gone)")
 
  # ==================================================================
  # Boss: trigger / no-duplicate-start / state machine
@@ -77,47 +95,47 @@ func run() -> void:
  var state_after_active: String = game.boss.state
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, 0.1)
  check(game.boss.state == state_after_active and game.boss.state != "INTRO", "further updates at the same distance never re-trigger INTRO")
-
- check(game.boss.pattern == DifficultyDirector.EVENT_NONE or game.boss.pattern == "PATH_BLOCK", "fixture sanity: pattern is either not-yet-set or the deterministic first pattern")
  check(game.boss.pattern == "PATH_BLOCK", "the first ACTIVE pattern is PATH_BLOCK (deterministic order, not random)")
 
  # ==================================================================
- # Pattern A: PATH BLOCK
+ # Pattern A: PATH BLOCK (redefined: a brief whole-side lethal zone)
  # ==================================================================
  check(game.boss.closed_side == 1 or game.boss.closed_side == -1, "PATH_BLOCK always closes exactly one side")
- check(is_instance_valid(game.boss.block_node), "a PATH_BLOCK blocker node exists")
- check(not game.boss.block_node.monitoring, "the blocker has no collision yet during its telegraph")
+ check(is_instance_valid(game.boss.block_node), "a PATH_BLOCK hazard volume exists")
+ check(not game.boss.block_node.monitoring, "the hazard has no collision yet during its telegraph")
  var closed_side_first: int = game.boss.closed_side
  var open_side: int = -closed_side_first
- check(absf(game.boss.block_node.global_position.x - closed_side_first * 11.4) < 0.01, "the blocker sits on the closed side's building line")
- check(not is_equal_approx(game.boss.block_node.global_position.x, open_side * 11.4), "fixture sanity: the open side has no blocker at the same position")
+ check(absf(game.boss.block_node.global_position.x - closed_side_first * 11.4) < 0.01, "the hazard sits on the closed side's building line")
+ check(not is_equal_approx(game.boss.block_node.global_position.x, open_side * 11.4), "fixture sanity: the open side has no hazard at the same position")
 
- # Boss Revision: the blocker is now a full-height wall, not a small box.
  var block_shape: BoxShape3D = game.boss.block_node.get_child(1).shape
- check(is_equal_approx(block_shape.size.x, 8.0), "the wall's width matches the closed building line's own footprint exactly (never spills onto the road or the open side)")
+ check(is_equal_approx(block_shape.size.x, 8.0), "the hazard's width matches the closed building line's own footprint exactly (never spills onto the road or the open side)")
  var current_max_building_height: float = 35.0 + Rules.BUILDING_BONUS[game.city.high_level]
- check(block_shape.size.y >= current_max_building_height, "the wall's height covers every building variant at the current Building Height tier, not a fixed 9m")
- check(is_equal_approx(game.boss.block_node.global_position.y, block_shape.size.y * 0.5), "the wall spans from ground level up (no gap to duck under)")
+ check(block_shape.size.y >= current_max_building_height, "the hazard's height covers every building variant at the current Building Height tier, not a fixed value")
+ check(is_equal_approx(game.boss.block_node.global_position.y, block_shape.size.y * 0.5), "the hazard spans from ground level up (no gap to duck under)")
  var wall_left: float = closed_side_first * 11.4 - block_shape.size.x * 0.5
  var wall_right: float = closed_side_first * 11.4 + block_shape.size.x * 0.5
- check(signi(wall_left) == signi(wall_right) and absf(wall_left) > 6.8, "the wall never crosses the road center line (stays entirely on its own side)")
+ check(signi(wall_left) == signi(wall_right) and absf(wall_left) > 6.8, "the hazard never crosses the road center line (stays entirely on its own side)")
 
- # The wall's height formula must scale with EVERY Building Height tier
- # (0-3), never assuming a single fixed value.
+ # The height formula must scale with EVERY Building Height tier (0-3).
  for high_level in range(4):
   game.city.apply_height_level(high_level)
   var expected: float = CityBoss.PATH_BLOCK_BASE_HEIGHT + Rules.BUILDING_BONUS[high_level] + CityBoss.PATH_BLOCK_HEIGHT_MARGIN
-  check(is_equal_approx(game.boss.path_block_wall_height(), expected), "the wall height formula covers Building Height tier %d with its own margin" % high_level)
+  check(is_equal_approx(game.boss.path_block_wall_height(), expected), "the hazard height formula covers Building Height tier %d with its own margin" % high_level)
  game.city.apply_height_level(3)
 
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
- check(game.boss.pattern_phase == "ACTIVE" and game.boss.block_node.monitoring, "the blocker becomes solid once its telegraph ends")
+ check(game.boss.active_duration("PATH_BLOCK") >= 1.0 and game.boss.active_duration("PATH_BLOCK") <= 2.0, "PATH_BLOCK's active duration is the short 1-2s punish window, not a multi-second wall")
 
- # Colliding with the open side must never trigger a hit: simulate the
- # Area3D's own body_entered handler directly (deterministic, no physics
- # timing dependency) for a body on the OPEN side by checking the blocker
- # position itself never matches it — already asserted above — and confirm
- # a real physics pass with the rider positioned on the open side is safe.
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
+ check(game.boss.pattern_phase == "ACTIVE" and game.boss.block_node.monitoring, "the hazard becomes lethal exactly once its telegraph ends")
+
+ # Wire aim/attach itself is completely unaffected: a real building on the
+ # OPEN side must still be a valid, connectable wire target while PATH_BLOCK
+ # is fully active on the other side.
+ var open_target := Vector3(open_side * 7.4, 26.0, game.rider.position.z - 8.0)
+ var open_selection: Dictionary = game.city.manual_target(game.rider.position, game.rider.position, (open_target - game.rider.position).normalized(), game.rider.reach(), game.rider.get_rid())
+ check(open_selection.get("valid", false), "a building on the open side is still a normal, connectable wire target while PATH_BLOCK is active")
+
  await fixture()
  game.city.practice = false
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
@@ -129,36 +147,76 @@ func run() -> void:
  await frames(4)
  check(game.rider.mode != "dead", "standing on the PATH_BLOCK's open side is safe (at least one route always exists)")
 
+ # Armor absorbs a PATH_BLOCK hit exactly like any other obstacle collision.
+ await fixture()
+ game.city.practice = false
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
+ game.rider.upgrade("armor")
+ game.rider.invincible = 0
+ game.boss._on_pattern_body_entered(game.rider)
+ check(game.rider.mode != "dead" and game.rider.armor_charges == 0, "armor absorbs a PATH_BLOCK hit exactly like any other obstacle collision")
+ game.boss._on_pattern_body_entered(game.rider)
+ check(game.rider.mode != "dead", "repeated PATH_BLOCK contact within the same invincibility window is suppressed, not stacked")
+
+ await fixture()
+ game.city.practice = false
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + CityBoss.PATH_BLOCK_TELEGRAPH + 0.2)
+ game.rider.armor_charges = 0
+ game.rider.invincible = 0
+ game.boss._on_pattern_body_entered(game.rider)
+ check(game.rider.mode == "dead", "without armor, touching the closed side during PATH_BLOCK is Game Over, same as any obstacle")
+
  # ==================================================================
- # Pattern B: LASER SWEEP
+ # Pattern B: LASER PLANE (redefined: random height, not fixed 8/30)
  # ==================================================================
  await fixture()
  game.city.practice = false
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + 0.05)
- # Walk PATH_BLOCK all the way through (telegraph+active+recovery+cooldown)
- # to reach the second pattern.
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH + CityBoss.PATH_BLOCK_ACTIVE + CityBoss.PATH_BLOCK_RECOVERY + CityBoss.COOLDOWN_DURATION + 0.2)
- check(game.boss.pattern == "LASER_SWEEP", "the second pattern is LASER_SWEEP (deterministic order)")
- check(game.boss.pattern_phase == "TELEGRAPH", "LASER_SWEEP starts in its telegraph phase")
+ game.city.apply_height_level(3)
+ game.rider.position = Vector3(0, 20, -100)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ var sampled_heights: Array[float] = []
+ for i in range(24):
+  game.boss.spawn_laser_plane()
+  sampled_heights.append(game.boss.laser_node.global_position.y)
+  game.boss.laser_node.queue_free()
+ var laser_top_bound: float = game.boss.laser_building_top() - CityBoss.LASER_TOP_MARGIN
+ check(sampled_heights.all(func(h: float): return h >= CityBoss.LASER_MIN_HEIGHT - 0.01 and h <= laser_top_bound + 0.01), "every laser height stays within the safe 0..apartment-height range")
+ check(sampled_heights.min() < sampled_heights.max(), "laser height is genuinely randomized across spawns, not fixed to two bands")
+ check(not sampled_heights.all(func(h: float): return is_equal_approx(h, 8.0) or is_equal_approx(h, 30.0)), "laser height is no longer restricted to the old fixed 8/30 bands")
+
+ await fixture()
+ game.city.practice = false
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + time_to_pattern_start(1) + 0.2)
+ check(game.boss.pattern == "LASER_PLANE", "the second pattern is LASER_PLANE (deterministic order)")
+ check(game.boss.pattern_phase == "TELEGRAPH", "LASER_PLANE starts in its telegraph phase")
  check(is_instance_valid(game.boss.laser_node) and not game.boss.laser_node.monitoring, "a laser telegraph exists but is not yet collidable")
  var laser_pos_before_active: Vector3 = game.boss.laser_node.global_position
- check(game.boss.laser_low == true or game.boss.laser_low == false, "fixture sanity: laser_low is a real bool")
- var first_laser_low: bool = game.boss.laser_low
- check(is_equal_approx(game.boss.laser_node.global_position.y, 8.0 if first_laser_low else 30.0), "the laser sits at the correct LOW/HIGH y band")
 
- # Boss Revision: the laser is now a wide barrier plane spanning both
- # building lines (roughly -15.4..15.4m), not a narrow 14m beam over just
- # the road, while its visual mesh and collision shape stay identical in
- # size (same BoxMesh/BoxShape3D dimensions).
  var laser_mesh: MeshInstance3D = game.boss.laser_node.get_child(0)
  var laser_shape: BoxShape3D = game.boss.laser_node.get_child(1).shape
  check(is_equal_approx(laser_mesh.mesh.size.x, laser_shape.size.x) and is_equal_approx(laser_mesh.mesh.size.y, laser_shape.size.y) and is_equal_approx(laser_mesh.mesh.size.z, laser_shape.size.z), "the laser's visible mesh and its collision volume are exactly the same size")
  check(laser_shape.size.x >= 30.0, "the laser spans the full corridor width, both building lines and the road between them")
- check(laser_shape.size.y <= 1.0, "the laser stays a thin height band, never a thick slab that could bleed into the other tier")
+ check(laser_shape.size.y <= 1.5, "the laser stays a thin height band, never a thick slab that could bleed into another route")
+ check(game.boss.active_duration("LASER_PLANE") >= 1.0 and game.boss.active_duration("LASER_PLANE") <= 2.0, "LASER_PLANE's active duration is a real 1-2s window")
 
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.LASER_TELEGRAPH + 0.2)
  check(game.boss.pattern_phase == "ACTIVE" and game.boss.laser_node.monitoring, "the laser becomes active (collidable) exactly after its telegraph duration")
- check(game.boss.laser_node.global_position.is_equal_approx(laser_pos_before_active), "the laser doesn't move between telegraph and active — same beam, just now live")
+ check(game.boss.laser_node.global_position.is_equal_approx(laser_pos_before_active), "the laser doesn't move between telegraph and active — same plane, just now live")
+
+ # A route above AND a route below the plane must both remain structurally
+ # guaranteed (spec section 12: the laser must never threaten the whole
+ # vertical range at once). Checked against random_safe_height()'s own
+ # bounds rather than one specific nearby building's real (independently
+ # randomized, and possibly still Building-Height-tier-0 from this fixture's
+ # very first chunk) height — that avoids coupling this check to whichever
+ # building instance happens to be nearby, which is a real hazard/route
+ # concern for THIS pattern regardless of ambient city generation.
+ var laser_y: float = game.boss.laser_node.global_position.y
+ check(laser_y >= CityBoss.LASER_MIN_HEIGHT - 0.01, "the laser plane respects its minimum height floor")
+ check(laser_y <= laser_top_bound + 0.01, "the laser plane respects its maximum height ceiling")
+ check(laser_y - 2.5 > 0.0, "there is real room below the laser plane down to the minimum aimable wire height (a below route exists)")
+ check((laser_top_bound + CityBoss.LASER_TOP_MARGIN) - laser_y >= CityBoss.LASER_TOP_MARGIN - 0.01, "there is always at least LASER_TOP_MARGIN of room above the laser plane up to the tier's usable ceiling (an above route exists)")
 
  # Armor absorbs one laser hit.
  game.rider.upgrade("armor")
@@ -166,29 +224,22 @@ func run() -> void:
  game.rider.invincible = 0
  game.boss._on_pattern_body_entered(game.rider)
  check(game.rider.mode != "dead" and game.rider.armor_charges == 0, "armor absorbs a laser hit exactly like any other obstacle collision")
- # Duplicate-hit suppression: the same contact firing again within the
- # armor's own invincibility window must never consume a second charge or
- # kill the player a frame later (PHASE C spec section 15).
  game.boss._on_pattern_body_entered(game.rider)
  game.boss._on_pattern_body_entered(game.rider)
  check(game.rider.mode != "dead" and game.rider.armor_charges == 0, "repeated contact within the same invincibility window is suppressed, not stacked")
 
- # No armor: fatal.
  await fixture()
  game.city.practice = false
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + CityBoss.PATH_BLOCK_TELEGRAPH + CityBoss.PATH_BLOCK_ACTIVE + CityBoss.PATH_BLOCK_RECOVERY + CityBoss.COOLDOWN_DURATION + CityBoss.LASER_TELEGRAPH + 0.2)
- check(game.boss.pattern == "LASER_SWEEP" and game.boss.pattern_phase == "ACTIVE", "fixture: laser is live")
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + time_to_pattern_start(1) + CityBoss.LASER_TELEGRAPH + 0.2)
+ check(game.boss.pattern == "LASER_PLANE" and game.boss.pattern_phase == "ACTIVE", "fixture: laser is live")
  game.rider.armor_charges = 0
  game.rider.invincible = 0
  game.boss._on_pattern_body_entered(game.rider)
  check(game.rider.mode == "dead", "without armor, a laser hit is fatal, same as any other obstacle")
 
- # Real-geometry overlap: position the rider inside the actual laser volume
- # and let real physics/Area3D detection fire the hit (not the direct
- # handler call above), confirming the collision shapes are wired correctly.
  await fixture()
  game.city.practice = false
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + CityBoss.PATH_BLOCK_TELEGRAPH + CityBoss.PATH_BLOCK_ACTIVE + CityBoss.PATH_BLOCK_RECOVERY + CityBoss.COOLDOWN_DURATION + CityBoss.LASER_TELEGRAPH + 0.2)
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + time_to_pattern_start(1) + CityBoss.LASER_TELEGRAPH + 0.2)
  game.rider.armor_charges = 0
  game.rider.invincible = 0
  game.rider.position = game.boss.laser_node.global_position
@@ -197,28 +248,109 @@ func run() -> void:
  check(game.rider.mode == "dead", "a real physics overlap with the active laser volume is fatal without armor")
 
  # ==================================================================
- # Pattern C: DRONE GATE
+ # Pattern C: ROBOT BARRAGE (replaces DRONE_GATE entirely)
  # ==================================================================
  await fixture()
  game.city.practice = false
- var to_drone_gate: float = CityBoss.INTRO_DURATION \
-  + CityBoss.PATH_BLOCK_TELEGRAPH + CityBoss.PATH_BLOCK_ACTIVE + CityBoss.PATH_BLOCK_RECOVERY + CityBoss.COOLDOWN_DURATION \
-  + CityBoss.LASER_TELEGRAPH + CityBoss.LASER_ACTIVE + CityBoss.LASER_RECOVERY + CityBoss.COOLDOWN_DURATION + 0.2
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, to_drone_gate)
- check(game.boss.pattern == "DRONE_GATE", "the third pattern is DRONE_GATE (deterministic order)")
- check(game.boss.gate_hazards.size() == 3, "the Drone Gate spawns exactly three police-drone hazards")
- check(game.boss.gate_hazards.all(func(h: Node3D): return h.get_meta("hookable", false)), "every Drone Gate hazard stays wireable, same as any other police drone")
- check(game.boss.gate_hazards.all(func(h: Node3D): return h.get_meta("hazard", false)), "every Drone Gate hazard carries the normal hazard collision meta")
- check(game.boss.gate_hazards[0].get_child(1).disabled, "Drone Gate collision starts disabled during its telegraph")
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + time_to_pattern_start(2) + 0.2)
+ check(game.boss.pattern == "ROBOT_BARRAGE", "the third pattern is ROBOT_BARRAGE (deterministic order; DRONE_GATE is removed)")
+ check(game.boss.pattern_phase == "TELEGRAPH", "ROBOT_BARRAGE starts with a telegraph (boss beacon flash) before anything launches")
+ check(game.boss.barrage_robots.is_empty(), "no robots exist yet during the telegraph")
 
- var worst_gate_gap: float = 0.0
- for i in range(game.boss.gate_hazards.size() - 1):
-  var d: float = game.boss.gate_hazards[i].global_position.distance_to(game.boss.gate_hazards[i + 1].global_position)
-  worst_gate_gap = maxf(worst_gate_gap, d)
- check(worst_gate_gap <= game.city.MAX_BASE_TRAVERSAL_GAP, "consecutive Drone Gate targets stay within base wire reach (worst gap %.1fm)" % worst_gate_gap)
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.ROBOT_BARRAGE_TELEGRAPH + CityBoss.ROBOT_LAUNCH_TIMES[-1] + 0.2)
+ check(game.boss.barrage_robots.size() == 3, "exactly three robots have launched by the end of the scheduled window")
+ check(game.boss.barrage_robots.all(func(r: Node3D): return not r.get_meta("hookable", true)), "barrage robots are non-hookable")
+ check(game.boss.barrage_robots.all(func(r: Node3D): return r.get_meta("hazard", false)), "barrage robots carry the normal hazard collision meta")
+ var xs: Array = game.boss.barrage_robots.map(func(r: Node3D): return r.position.x)
+ check(xs[0] != xs[1] and xs[1] != xs[2] and xs[0] != xs[2], "the three robots launch from three distinct X positions (left/center/right)")
 
- advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.DRONE_GATE_TELEGRAPH + 0.2)
- check(not game.boss.gate_hazards[0].get_child(1).disabled, "Drone Gate collision enables once its telegraph ends")
+ # Straight-line, non-homing: velocity is fixed at launch and never re-aimed.
+ var robot: Node3D = game.boss.barrage_robots[0]
+ var v: Vector3 = robot.get_meta("velocity")
+ check(v.length() > 0.0 and is_equal_approx(v.length(), CityBoss.ROBOT_SPEED), "each robot launches at the configured speed")
+ var pos_before: Vector3 = robot.position
+ game.rider.position = robot.position + Vector3(80, 80, 80)
+ game.boss.update_active_robots(1.0 / 60.0)
+ var v_after: Vector3 = robot.get_meta("velocity")
+ check(v_after.is_equal_approx(v), "a robot's velocity never changes after launch even if the player moves elsewhere — it does not home")
+ check(robot.position.is_equal_approx(pos_before + v * (1.0 / 60.0)), "a robot moves in a straight line at its launch velocity")
+
+ # Direction leads the player's position at launch time, but is not a pure
+ # homing re-aim (computed once, from position, not tracked continuously).
+ await fixture()
+ game.city.practice = false
+ game.rider.position = Vector3(0, 20, -100)
+ game.rider.velocity = Vector3(5, 0, -10)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.boss.global_position = Vector3(0, 20, -50)
+ game.boss.spawn_robot(0.0)
+ check(game.boss.barrage_robots.size() == 1, "fixture: one robot spawned directly")
+ var spawned: Node3D = game.boss.barrage_robots[0]
+ var expected_target: Vector3 = game.rider.position + game.rider.velocity * CityBoss.ROBOT_LEAD_TIME
+ var expected_dir: Vector3 = (expected_target - spawned.position).normalized()
+ var actual_velocity: Vector3 = spawned.get_meta("velocity")
+ check(actual_velocity.normalized().is_equal_approx(expected_dir), "a robot's initial direction leads the player's position/velocity at launch, then locks")
+
+ # Lifetime cleanup.
+ await fixture()
+ game.city.practice = false
+ game.rider.position = Vector3(0, 20, -100)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.boss.spawn_robot(0.0)
+ var expiring: Node3D = game.boss.barrage_robots[0]
+ expiring.set_meta("age", CityBoss.ROBOT_LIFETIME + 1.0)
+ game.boss.update_active_robots(1.0 / 60.0)
+ check(game.boss.barrage_robots.is_empty(), "a robot past its lifetime is removed from tracking")
+ await process_frame # queue_free() only actually frees the node at the next idle/frame boundary
+ check(not is_instance_valid(expiring), "the expired robot node itself is freed, not just untracked")
+
+ # Falling far behind the player also triggers early cleanup.
+ await fixture()
+ game.city.practice = false
+ game.rider.position = Vector3(0, 20, -100)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.boss.spawn_robot(0.0)
+ var behind: Node3D = game.boss.barrage_robots[0]
+ game.rider.position = behind.global_position + Vector3(0, 0, -100)
+ game.boss.update_active_robots(1.0 / 60.0)
+ check(game.boss.barrage_robots.is_empty(), "a robot that falls far enough behind the player is cleaned up early, before its full lifetime")
+ await process_frame
+ check(not is_instance_valid(behind), "the cleaned-up robot node is actually freed")
+
+ # Collision/armor parity, same as every other hazard — approach with real
+ # relative motion (mirrors the existing vehicle-collision test convention
+ # in tests/run.gd), since a zero-velocity body already exactly overlapping
+ # a target at frame 1 doesn't reliably produce a move_and_collide() hit.
+ await fixture()
+ game.city.practice = false
+ game.rider.position = Vector3(0, 20, -100)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.boss.spawn_robot(0.0)
+ var target_robot: Node3D = game.boss.barrage_robots[0]
+ game.rider.position = target_robot.global_position + Vector3(0, 0, 3.0)
+ game.rider.velocity = Vector3(0, 0, -25)
+ game.rider.armor_charges = 0
+ game.rider.invincible = 0
+ await frames(6)
+ check(game.rider.mode == "dead", "colliding with a barrage robot without armor is fatal, same as any obstacle")
+
+ await fixture()
+ game.city.practice = false
+ game.rider.position = Vector3(0, 20, -100)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.boss.spawn_robot(0.0)
+ var target_robot2: Node3D = game.boss.barrage_robots[0]
+ game.rider.upgrade("armor")
+ game.rider.position = target_robot2.global_position + Vector3(0, 0, 3.0)
+ game.rider.velocity = Vector3(0, 0, -25)
+ game.rider.invincible = 0
+ await frames(6)
+ check(game.rider.mode != "dead" and game.rider.armor_charges == 0, "armor absorbs a barrage robot collision, consuming one charge")
 
  # ==================================================================
  # Sky Gap / Traffic Surge never overlap the boss encounter or rest area
@@ -232,22 +364,21 @@ func run() -> void:
  check(not any_event_in_zone, "no Sky Gap or Traffic Surge chunk ever falls inside the boss encounter or rest area")
 
  # ==================================================================
- # Boss Clear / cleanup / no re-trigger
+ # Boss Clear / cleanup (including any still-flying robots) / no re-trigger
  # ==================================================================
  await fixture()
  game.city.practice = false
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.INTRO_DURATION + 0.2)
  advance_boss(DifficultyDirector.city_boss_clear_distance(), 0.0)
  check(game.boss.state == "ESCAPE", "reaching the escape distance moves the boss to ESCAPE")
- check(not is_instance_valid(game.boss.block_node) and not is_instance_valid(game.boss.laser_node) and not is_instance_valid(game.boss.gate_node), "entering ESCAPE cleans up any pattern currently in progress")
+ check(not is_instance_valid(game.boss.block_node) and not is_instance_valid(game.boss.laser_node) and not is_instance_valid(game.boss.barrage_root), "entering ESCAPE cleans up any pattern in progress, including any still-flying robots")
  advance_boss(DifficultyDirector.city_boss_clear_distance(), CityBoss.ESCAPE_DURATION + 0.2)
  check(game.boss.state == "CLEARED", "the boss reaches CLEARED after the escape retreat duration")
  check(not game.boss.visible, "the boss visual despawns (hidden) once CLEARED")
- var pattern_before_extra_updates: String = game.boss.pattern
  for i in range(30):
   advance_boss(DifficultyDirector.city_boss_clear_distance() + 1000.0, 1.0)
  check(game.boss.state == "CLEARED", "CLEARED never re-triggers even far past the clear distance")
- check(not is_instance_valid(game.boss.block_node) and not is_instance_valid(game.boss.laser_node) and not is_instance_valid(game.boss.gate_node), "no new pattern nodes ever spawn once CLEARED")
+ check(not is_instance_valid(game.boss.block_node) and not is_instance_valid(game.boss.laser_node) and not is_instance_valid(game.boss.barrage_root), "no new pattern nodes or robots ever spawn once CLEARED")
 
  # ==================================================================
  # Independence from Player Progression (mirrors tests/difficulty.gd)
@@ -260,7 +391,6 @@ func run() -> void:
  var tiers_before: Dictionary = game.rider.tiers.duplicate()
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE + 50.0, 0.5)
  check(game.rider.tiers == tiers_before, "advancing the boss encounter never changes player upgrade tiers")
- check(DifficultyDirector.CITY_BOSS_START_DISTANCE == DifficultyDirector.CITY_BOSS_START_DISTANCE, "sanity: the boss start distance is a fixed constant, not derived from player level/upgrades")
 
  # ==================================================================
  # Boss Procedural Stress Test: full encounters run clean, twice, with no leaks.
@@ -273,14 +403,10 @@ func run() -> void:
   while d < end_d:
    d += 5.0
    game.boss.update(1.0 / 30.0, d, game.rider, game.city)
-  # Distance alone reaching the clear/rest window isn't enough — ESCAPE's
-  # own real-time retreat (CityBoss.ESCAPE_DURATION) still has to finish
-  # ticking before the boss resolves to CLEARED, regardless of how far
-  # CITY_BOSS_ESCAPE_DISTANCE happens to be tuned to.
   for i in range(int(CityBoss.ESCAPE_DURATION * 30.0) + 10):
    game.boss.update(1.0 / 30.0, end_d, game.rider, game.city)
   check(game.boss.state == "CLEARED", "run %d: a full simulated encounter reaches CLEARED without getting stuck" % run_index)
-  check(not is_instance_valid(game.boss.block_node) and not is_instance_valid(game.boss.laser_node) and not is_instance_valid(game.boss.gate_node), "run %d: no pattern nodes remain after a full encounter" % run_index)
+  check(not is_instance_valid(game.boss.block_node) and not is_instance_valid(game.boss.laser_node) and not is_instance_valid(game.boss.barrage_root), "run %d: no pattern nodes or robots remain after a full encounter" % run_index)
 
  # ==================================================================
  # Real end-to-end integration: Main._physics_process() itself drives the boss.
@@ -314,8 +440,6 @@ func run() -> void:
 
  check(DifficultyDirector.chapter_for_distance(DifficultyDirector.rest_area_end_distance() + 1.0) == "CITY_COMPLETE", "the chapter becomes CITY_COMPLETE once the Rest Area ends")
 
- # Existing movement still works normally inside the Rest Area (no new
- # auto-move/cinematic camera — PHASE C spec section 27).
  game.rider.position = Vector3(0, 20, rest_chunk.position.z - 8)
  game.rider.velocity = Vector3(0, 0, -10)
  game.rider.mode = "air"
@@ -354,8 +478,6 @@ func run() -> void:
  check(game.played_signals.count(SignalStory.SIGNAL_CITY_BOSS_CLEAR) == 1, "the Boss Clear signal never plays more than once")
  check(game.played_signals.size() == 3, "all three signals have played, and none more than once, by the end of a run")
 
- # Localization: every signal message has a real (non-identical) Korean
- # translation, and falls back to the English original when language=en.
  for id in SignalStory.ORDER:
   var english: String = SignalStory.MESSAGES[id]
   game.locale.language = "ko"
