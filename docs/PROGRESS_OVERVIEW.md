@@ -1,4 +1,6 @@
-# Wire Rush — 프로토타입 0.7.0
+# Wire Rush — 프로토타입 0.12.4
+
+2026-09-22 (City QA / 안정화). `580f419` / 0.12.3에서 시작해 원점 이동 시 보스·패턴·로봇 좌표 누락, Rest Area 첫 부분 청크의 드론 및 외부 차량 진입, 보스와 떨어진 로봇 출현, 레이저 활성 1프레임 초과, 평지 스케이트 조기 정지를 수정했습니다. 최종 830개 검사와 traversal, Windows export·EXE smoke test 통과. [현재 검증 범위와 남은 디자인 검토](QA_0.12.4.md)를 참조하세요. 아래 날짜별 기록과 과거 검증 수치는 당시 결과이며 현재 수치는 QA 보고서를 기준으로 합니다.
 
 2026-09-14. E 두 줄 사출을 제거하고 벽 점프·이중 점프를 새 기본 이동 능력으로 추가했습니다. 건물 배치는 배치 비교 실험 중 건물 간격 방식을 기본으로 고정했고, 연습 모드는 항상 양쪽 벽을 배치합니다. 이어서 스케이트를 마찰 계수 방식에서 등급별 2/3/4초 지속시간 방식으로 되돌리고, 점프 높이와 이중 점프를 별개의 업그레이드로 분리했으며, 레벨업이 즉시 정지하지 않고 업그레이드 대기 스택을 쌓다가 G 키로 한 번에 소비하도록 변경했습니다. 벽 점프는 실전에서 확인되지 않아 주석 처리로 비활성화했고, HUD를 큰 폭으로 정리해 불필요한 문구·패널을 제거했습니다.
 
@@ -17,8 +19,8 @@
 ## 실행
 
 - 프로젝트: `D:/GameProject/WireSwing/project.godot`
-- 실행 파일: `builds/WireRush-0.7.0-Windows/WireRush.exe`
-- 배포 ZIP: `builds/WireRush-0.7.0-Windows.zip`
+- 실행 파일: `builds/WireRush-0.12.4-Windows/WireRush.exe`
+- 배포 ZIP: `builds/WireRush-0.12.4-Windows.zip`
 - 저장소: https://github.com/Autopopcornshooter/wire-rush
 
 기존 HellDelivery와 별도의 프로젝트입니다. 엔진·템플릿·빌드는 Git에서 제외하며 이전 0.1.0~0.5.2 로컬 빌드는 보존합니다.

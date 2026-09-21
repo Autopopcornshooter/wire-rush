@@ -170,6 +170,11 @@ static func is_boss_zone(distance: float) -> bool:
 static func is_rest_zone(distance: float) -> bool:
  return distance >= city_boss_clear_distance() and distance < rest_area_end_distance()
 
+## Includes hazard footprints and swept traffic spans at partial chunks;
+## checking only a chunk's start misses the 4700m boundary inside chunk 73.
+static func overlaps_rest_zone(start_distance: float, end_distance: float) -> bool:
+ return end_distance >= city_boss_clear_distance() and start_distance < rest_area_end_distance()
+
 ## City Chapter state (PHASE C spec section 35). Pure function of distance:
 ## the only way to ever reach a further distance is to have physically
 ## survived getting there (dying resets the run via Main.start_run()), so a

@@ -423,7 +423,23 @@ func run() -> void:
  check(game.choices.all(func(key: String): return Rules.UPGRADES[key].type == "NORMAL"), "the final queued entry is NORMAL again, not re-evaluated against the player's current level")
  game.choose(0)
  check(game.pending_upgrades.is_empty() and game.phase == "countdown", "the whole stacked queue resolves in NORMAL, CORE, NORMAL order")
+ await skate_floor_continuity()
  print("RESULT ", checks - failures, "/", checks, " passed; failures=", failures)
  game.free()
  await process_frame
  quit(0 if failures == 0 else 1)
+
+func skate_floor_continuity() -> void:
+ # Actual oblique low-speed landings on a flat road used to lose floor
+ # contact for two substeps, become air, then stop with charge remaining.
+ for speed in [4.356537, 4.688873, 15.0]:
+  await fixture()
+  var r: CharacterBody3D = game.rider
+  r.reset(true)
+  r.position = Vector3(-1.32681, 0.9, -23.80967)
+  r.velocity = Vector3(-0.259354, -0.166667, -speed)
+  r.fresh_landing_hook = true
+  r.last_release_height = 4.0
+  await frames(65)
+  check(r.mode == "slide" and r.skate_charge > 0.4, "an oblique %.2fm/s landing keeps skating while charge remains on a flat road" % speed)
+  check(absf(Vector2(r.velocity.x, r.velocity.z).length() - speed) < 0.1, "flat-road skating retains %.2fm/s instead of stopping on a missed contact substep" % speed)

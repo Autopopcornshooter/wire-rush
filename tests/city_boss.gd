@@ -534,7 +534,91 @@ func run() -> void:
   check(game.locale.text(english) == english, "%s falls back to the English placeholder when language=en" % id)
  game.locale.language = "ko"
 
+ await runtime_regressions()
  print("CITY_BOSS_RESULT ", checks - failures, "/", checks, " passed; failures=", failures)
  game.free()
  await process_frame
  quit(0 if failures == 0 else 1)
+
+func runtime_regressions() -> void:
+ # Exercise Main's real floating-origin branch while each laser and an
+ # independently moving robot exist. Isolated boss.update() tests miss it.
+ for name in [CityBoss.PATTERN_PATH_BLOCK, CityBoss.PATTERN_LASER_PLANE]:
+  await fixture()
+  game.city.rebase(2048)
+  game.distance = 4095
+  game.city.update_chunks(game.distance)
+  game.rider.position = Vector3(0, 20, -2048.01)
+  game.rider.velocity = Vector3(0, 0, -20)
+  game.rider.invincible = 10
+  game.boss.rider = game.rider
+  game.boss.city = game.city
+  game.boss.global_position = game.boss.boss_target_position()
+  game.boss.state = CityBoss.STATE_ACTIVE
+  game.boss.start_pattern(name)
+  game.boss.pattern_phase = CityBoss.PHASE_ACTIVE
+  game.boss.phase_timer = 1.0
+  game.boss.set_pattern_collision(true)
+  game.boss.spawn_robot(0)
+  var hazard: Area3D = game.boss.block_node if name == CityBoss.PATTERN_PATH_BLOCK else game.boss.laser_node
+  var relative_hazard: Vector3 = hazard.global_position - game.rider.position
+  var relative_boss: Vector3 = game.boss.global_position - game.rider.position
+  var robot: Node3D = game.boss.barrage_robots[0]
+  var relative_robot: Vector3 = robot.global_position - game.rider.position
+  game._physics_process(1.0 / 60.0)
+  check(is_equal_approx(game.city.origin_offset, 4096), "%s fixture crosses the real 4096m origin boundary" % name)
+  check(absf(hazard.global_position.z - game.rider.position.z - relative_hazard.z) < 1.0, "%s keeps its relative Z after Main rebases the world" % name)
+  check(absf(game.boss.global_position.z - game.rider.position.z - relative_boss.z) < 1.0, "the visible boss keeps its relative Z after rebasing")
+  check(absf(robot.global_position.z - game.rider.position.z - relative_robot.z) < 1.0, "a live barrage robot keeps its relative Z trajectory across rebasing")
+  check(hazard.monitoring, "rebasing preserves an active laser's collision state")
+
+ await fixture()
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.boss.global_position = game.boss.boss_target_position()
+ for x in CityBoss.ROBOT_LAUNCH_X:
+  game.boss.spawn_robot(x)
+  var robot: Node3D = game.boss.barrage_robots.back()
+  check(robot.global_position.distance_to(game.boss.global_position) < 5.0, "robot %.1f launches from the boss hull, not a random detached height" % x)
+
+ for name in [CityBoss.PATTERN_PATH_BLOCK, CityBoss.PATTERN_LASER_PLANE]:
+  game.boss.cleanup_pattern_nodes()
+  game.boss.start_pattern(name)
+  while game.boss.pattern_phase == CityBoss.PHASE_TELEGRAPH:
+   game.boss.update_current_pattern(1.0 / 60.0)
+  var active_frames: int = 0
+  while game.boss.pattern_phase == CityBoss.PHASE_ACTIVE:
+   active_frames += 1
+   game.boss.update_current_pattern(1.0 / 60.0)
+  check(active_frames == 120, "%s is active for exactly 120 physics ticks at 60Hz (got %d)" % [name, active_frames])
+
+ await fixture()
+ game.city.rebase(4096)
+ game.city.update_chunks(4700)
+ var unsafe_drones: int = 0
+ for chunk in game.city.chunks.values():
+  for n in chunk.get_children():
+   if n.get_meta("hazard", false):
+    var distance: float = -n.global_position.z + game.city.origin_offset
+    var half_depth: float = n.get_child(1).shape.size.z * 0.5
+    if distance + half_depth >= 4700 and distance - half_depth < 5100:
+     unsafe_drones += 1
+ check(unsafe_drones == 0, "the partial first Rest Area chunk has no overlapping drone hazards")
+ check(rest_vehicle_count() == 0, "no vehicle spawns across the exact 4700m Rest Area boundary")
+ game.city.update_vehicles(30.0)
+ check(rest_vehicle_count() == 0, "traffic from before the Rest Area cannot drive into it")
+ game.city.update_chunks(5050)
+ var oncoming: Node3D = game.city.spawn_vehicle(game.city.chunks[80], 0, Vector3(-3.4, 0, -20), 1.0)
+ check(is_instance_valid(oncoming), "fixture: an oncoming car exists beyond the Rest Area exit")
+ game.city.update_vehicles(40.0)
+ check(rest_vehicle_count() == 0, "oncoming traffic beyond the Rest Area cannot drive back into it")
+ check(game.city.vehicles.all(func(v: Node3D): return is_instance_valid(v) and not v.is_queued_for_deletion()), "retired Rest Area traffic leaves no stale tracking entries")
+
+func rest_vehicle_count() -> int:
+ var count: int = 0
+ for v in game.city.vehicles:
+  var distance: float = -v.global_position.z + game.city.origin_offset
+  var half_depth: float = v.get_child(1).shape.size.z * 0.5
+  if distance + half_depth >= 4700 and distance - half_depth < 5100:
+   count += 1
+ return count

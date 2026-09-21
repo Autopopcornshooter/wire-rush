@@ -292,6 +292,7 @@ func _physics_process(delta: float) -> void:
   check_signals()
  if rider.position.z < -2048:
   city.rebase(2048)
+  boss.rebase(2048)
   rider.position.z += 2048
   camera.position.z += 2048
  update_camera_goal(delta)

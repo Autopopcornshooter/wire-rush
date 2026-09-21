@@ -183,10 +183,20 @@ func update_chunks(distance: float, attached: Node3D = null, extra_anchors: Arra
 ## rebasing (city.rebase()) already carries them along for free, same as
 ## every other chunk-local decoration.
 func update_vehicles(delta: float) -> void:
- for v in vehicles:
+ for i in range(vehicles.size() - 1, -1, -1):
+  var v: Node3D = vehicles[i]
   if not is_instance_valid(v):
+   vehicles.remove_at(i)
    continue
-  v.position.z += float(v.get_meta("dir")) * float(v.get_meta("speed")) * delta
+  var travel: float = float(v.get_meta("dir")) * float(v.get_meta("speed")) * delta
+  var distance: float = -v.global_position.z + origin_offset
+  var next_distance: float = distance - travel
+  var half_depth: float = v.get_child(1).shape.size.z * 0.5
+  if DifficultyDirector.overlaps_rest_zone(minf(distance, next_distance) - half_depth, maxf(distance, next_distance) + half_depth):
+   vehicles.remove_at(i)
+   v.queue_free()
+   continue
+  v.position.z += travel
 
 func create_chunk(index: int) -> void:
  var chunk := Node3D.new()
@@ -321,6 +331,9 @@ func create_chunk(index: int) -> void:
   # meet) — chunks still read as varied via the independent X cycling below.
   var half_span: float = maxf(1.0, float(hazard_count - 1) * 0.5)
   for i in range(hazard_count):
+   var hazard_distance: float = index * LENGTH + 10 + i * z_step
+   if DifficultyDirector.overlaps_rest_zone(hazard_distance - 0.7, hazard_distance + 0.7):
+    continue
    var x: float = [-3.7, 0.0, 3.7][posmod(index + i, 3)]
    var t: float = 1.0 - absf(float(i) - half_span) / half_span
    var y: float = lerpf(min_hazard_y, max_hazard_y, t)
@@ -580,6 +593,10 @@ func spawn_vehicles(chunk: Node3D, index: int, gap_scale: float) -> void:
 ## manual_target()/range_limited_target() only ever consider surfaces
 ## carrying those tags.
 func spawn_vehicle(chunk: Node3D, model_index: int, pos: Vector3, dir_sign: float) -> Node3D:
+ var distance: float = -chunk.to_global(pos).z + origin_offset
+ var half_depth: float = CAR_TARGET_LENGTH[model_index] * 0.5
+ if DifficultyDirector.overlaps_rest_zone(distance - half_depth, distance + half_depth):
+  return null
  var model: Node3D = CAR_MODELS[model_index].instantiate()
  var raw_box: AABB = model_aabb(model)
  if raw_box.size.x <= 0 or raw_box.size.y <= 0 or raw_box.size.z <= 0:

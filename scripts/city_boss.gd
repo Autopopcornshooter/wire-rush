@@ -86,11 +86,6 @@ const LASER_TELEGRAPH: float = WARNING_TOTAL_DURATION
 const LASER_ACTIVE: float = WARNING_ACTIVE_DURATION
 const LASER_RECOVERY: float = 0.4
 const LASER_WIDTH: float = 32.0
-## Height bounds Robot Barrage's own random spawn height still uses
-## (unchanged — spec section 23 keeps Pattern C exactly as-is). LASER_PLANE
-## itself no longer reads these; see laser_half_bounds().
-const LASER_MIN_HEIGHT: float = 3.0
-const LASER_TOP_MARGIN: float = 3.0
 
 ## Boss Pattern Revision V2 (spec sections 16-28): DRONE_GATE (a set of
 ## static, wireable police-drone hazards placed like a mini route puzzle)
@@ -119,6 +114,9 @@ const ROBOT_LAUNCH_TIMES: Array[float] = [0.0, 0.45, 0.9]
 ## convention (see City.create_chunk()'s own [-3.7, 0.0, 3.7] cycling) —
 ## guarantees the 3 robots never share a spawn X (spec section 24).
 const ROBOT_LAUNCH_X: Array[float] = [-3.7, 0.0, 3.7]
+## Hull-relative launch ports: keep the source of every projectile visible
+## on the interceptor instead of teleporting it to a random city height.
+const ROBOT_LAUNCH_OFFSET := Vector3(0, -0.75, 2.8)
 const ROBOT_SIZE := Vector3(2.6, 2.2, 1.4)
 ## Clearly faster than ambient traffic (City.CAR_SPEED = 4, deliberately
 ## slow) so it reads as a real threat, while staying well under the
@@ -155,10 +153,8 @@ var block_node: Area3D
 var laser_node: Area3D
 var barrage_root: Node3D
 var barrage_robots: Array[Node3D] = []
-var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
- rng.randomize()
  build_visual()
 
 func build_visual() -> void:
@@ -317,6 +313,15 @@ func position_near_player() -> void:
   return
  global_position = global_position.lerp(boss_target_position(), 0.06)
 
+## Main rebases the city and rider together. Pattern volumes and the
+## barrage root are top-level world-space nodes, so moving the boss alone
+## cannot carry them along. Move each independent root exactly once.
+func rebase(amount: float) -> void:
+ global_position.z += amount
+ for node in [block_node, laser_node, barrage_root]:
+  if is_instance_valid(node):
+   node.global_position.z += amount
+
 func start_escape() -> void:
  state = STATE_ESCAPE
  phase_timer = ESCAPE_DURATION
@@ -354,7 +359,9 @@ func update_current_pattern(delta: float) -> void:
  if pattern == PATTERN_ROBOT_BARRAGE and pattern_phase == PHASE_ACTIVE:
   barrage_active_elapsed += delta
   try_launch_robots()
- if phase_timer > 0:
+ # 120 subtractions of 1/60 can leave a tiny positive residue at 2s.
+ # Treat that as the boundary rather than keeping collision on another tick.
+ if phase_timer > 0.000001:
   return
  if pattern == PATTERN_COOLDOWN:
   pattern_index = (pattern_index + 1) % PATTERN_SEQUENCE.size()
@@ -517,17 +524,6 @@ func spawn_path_block() -> void:
 func laser_building_top() -> float:
  return PATH_BLOCK_BASE_HEIGHT + Rules.BUILDING_BONUS[city.high_level]
 
-## Shared by Robot Barrage's random spawn height (Pattern C, unchanged by
-## this revision): a safe, meaningful band between the road
-## (LASER_MIN_HEIGHT above it) and the current Building Height tier's usable
-## ceiling (LASER_TOP_MARGIN below the rooftops).
-func random_safe_height() -> float:
- var top: float = laser_building_top() - LASER_TOP_MARGIN
- var bottom: float = LASER_MIN_HEIGHT
- if top <= bottom:
-  return bottom
- return rng.randf_range(bottom, top)
-
 ## (bottom, top) of whichever half is selected — UPPER is the top half of
 ## the current usable building height, LOWER is the bottom half. Splitting
 ## exactly at building-top/2 means both halves scale together with
@@ -611,7 +607,7 @@ func spawn_robot(x_offset: float) -> void:
  if not is_instance_valid(rider):
   return
  ensure_barrage_root()
- var spawn_pos := Vector3(global_position.x + x_offset, random_safe_height(), global_position.z - 6.0)
+ var spawn_pos: Vector3 = global_position + ROBOT_LAUNCH_OFFSET + Vector3(x_offset, 0, 0)
  # Direction is computed ONCE, here, from the player's position and current
  # velocity with a small predictive lead — then locked for the robot's
  # entire lifetime (see update_active_robots()). This is deliberately not

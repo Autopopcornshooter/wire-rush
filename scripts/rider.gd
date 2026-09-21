@@ -338,17 +338,16 @@ func integrate(dt: float, steer: float, forward: float = 0.0) -> void:
     touching_wall_side = signi(normal.x)
    velocity = velocity.slide(normal) * 0.85
   motion = hit.get_remainder().slide(normal)
- # Was -0.5, which (at ~20 m/s^2 gravity, two 1/120s substeps per real
- # frame) let the player visibly run/walk/slide a beat or two past a ledge
- # in mid-air before mode actually flipped to "air" — most noticeable
- # since forward walking was added, since it's now easy to jog straight off
- # a rooftop edge instead of only ever strafing near one. -0.2 is still
- # safely above the ~0.1667 a single resting substep's own gravity
- # accumulation can transiently reach before that substep's own floor
- # collision zeroes it back out (so standing/walking on solid ground still
- # never false-triggers this), but closes most of that visible gap.
+ # Keep the prompt ledge transition, but verify support before declaring
+ # air: capsule recovery can miss road contact for two tiny substeps even
+ # on flat asphalt. That used to cancel a charged slide on the next land().
  if mode in ["ground", "slide"] and not touched_floor and velocity.y < -0.2:
-  mode = "air"
+  var support := KinematicCollision3D.new()
+  var on_road: bool = test_move(global_transform, Vector3(0, -0.05, 0), support, 0.001, true)
+  if on_road and support.get_normal().y > 0.7 and support.get_collider().get_meta("road", false):
+   velocity.y = 0
+  else:
+   mode = "air"
  if position.y < -8:
   hurt("MISSED THE ROAD")
  if absf(position.x) > 6.6:
