@@ -9,6 +9,7 @@ const DifficultyDirector = preload("res://scripts/difficulty_director.gd")
 const CityBoss = preload("res://scripts/city_boss.gd")
 const SignalStory = preload("res://scripts/signal_story.gd")
 const Wasteland = preload("res://scripts/wasteland.gd")
+const CrawlerBoss = preload("res://scripts/crawler_boss.gd")
 var preferences = Preferences.new()
 var locale = Locale.new()
 var settings_return: String = "menu"
@@ -20,6 +21,7 @@ var city: Node3D
 var wasteland: Node3D
 var rider: CharacterBody3D
 var boss: Node3D
+var crawler: Node3D
 ## PHASE W-C: exposed so Wasteland.apply_environment() can blend the shared
 ## fog toward/away from Dust Zone (see setup_environment()/create_world()) —
 ## everything else about the Environment stays owned/created here.
@@ -162,6 +164,8 @@ func create_world(practice: bool) -> void:
   wasteland.free()
  if is_instance_valid(boss):
   boss.free()
+ if is_instance_valid(crawler):
+  crawler.free()
  city = City.new()
  city.locale = locale
  city.practice = practice
@@ -169,7 +173,9 @@ func create_world(practice: bool) -> void:
  city.update_chunks(0)
  wasteland = Wasteland.new()
  add_child(wasteland)
- city.extra_target_roots = [wasteland]
+ crawler = CrawlerBoss.new()
+ add_child(crawler)
+ city.extra_target_roots = [wasteland, crawler]
  wasteland.bind_environment(environment)
  rider = Rider.new()
  rider.city = city
@@ -182,6 +188,8 @@ func create_world(practice: bool) -> void:
  boss.cue.connect(play_boss_cue)
  add_child(boss)
  boss.reset()
+ crawler.cue.connect(play_boss_cue)
+ crawler.reset()
 
 func start_run(practice: bool) -> void:
  pending_mouse.clear()
@@ -303,6 +311,12 @@ func _physics_process(delta: float) -> void:
  # Wasteland.update_events()'s own doc comment. Runs every playing-phase
  # physics frame, same pairing as City.update_vehicles() right below.
  wasteland.update_events(delta, distance)
+ # PHASE W-E: unconditional, same reasoning as wasteland.update_events()
+ # above — Wasteland (and so the Crawler, which lives well past its own
+ # boundary) is currently only reachable via practice mode in a real run,
+ # so gating this on `not training` like CityBoss would make it
+ # unreachable in every mode that can actually get here.
+ crawler.update(delta, distance, rider, wasteland)
  city.update_vehicles(delta)
  if not training:
   boss.update(delta, distance, rider, city)
@@ -311,6 +325,7 @@ func _physics_process(delta: float) -> void:
   city.rebase(2048)
   wasteland.rebase(2048)
   boss.rebase(2048)
+  crawler.rebase(2048)
   rider.position.z += 2048
   camera.position.z += 2048
  update_camera_goal(delta)
@@ -349,6 +364,7 @@ func play_boss_cue(kind: String) -> void:
   "laser": tone(180, 0.25)
   "launch": tone(420, 0.13)
   "escape": tone(880, 0.4)
+  "active": tone(160, 0.3)
 
 ## PHASE C City Chapter state — pure function of `distance` (see
 ## DifficultyDirector.chapter_for_distance()). Not stored: the only way to

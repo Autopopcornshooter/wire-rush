@@ -1,7 +1,11 @@
 extends Node3D
 ## WASTELAND — Phase W-A graybox foundation + Phase W-B LOW/HIGH route
-## system + Phase W-C events (Dust Zone / Turbine Field / Crane Yard) for
-## Wire Rush's second chapter. A separate, independent chunk-
+## system + Phase W-C events (Dust Zone / Turbine Field / Crane Yard) +
+## Phase W-D environment/art polish + Phase W-E Crawler Boss world-
+## generation suppression window for Wire Rush's second chapter. The
+## Crawler Boss's own geometry/state machine live in scripts/crawler_boss.gd
+## — this file only owns the WASTELAND_BOSS_* window used to keep ordinary
+## chunk/event generation out of its way. A separate, independent chunk-
 ## generation layer (mirrors City's own chunks/update_chunks()/
 ## create_chunk()/rebase() shape) rather than a branch bolted onto City.gd
 ## — see DifficultyDirector.wasteland_start_distance() for the single
@@ -46,6 +50,47 @@ const T_CONCRETE_ORM: Texture2D = preload("res://assets/citykit/T_Concrete_ORM.p
 const LENGTH: float = 64.0
 static func first_chunk_index() -> int:
  return ceili(DifficultyDirector.wasteland_start_distance() / LENGTH)
+
+# ---------------------------------------------------------------------
+# PHASE W-E: Crawler Boss window — expressed as WASTELAND-LOCAL progress
+# (spec section 5), not a second absolute-distance constant duplicated
+# from DifficultyDirector, and kept here (not in difficulty_director.gd)
+# for the same reason the W-C Event Director lives here: Wasteland owns
+# its own directorial state fully independent of City's tier/event system
+# (no Player Progression, no City tier read anywhere below). Production
+# final Wasteland length is still undecided (spec section 5 explicitly
+# forbids guessing it here) — WASTELAND_BOSS_START_DISTANCE is a standalone
+# tuning knob, not derived from any "end of Wasteland" constant that
+# doesn't exist yet.
+# ---------------------------------------------------------------------
+const WASTELAND_BOSS_START_DISTANCE: float = 2400.0
+## Rough encounter span for world-generation SUPPRESSION purposes only
+## (spec section 43/44) — generous enough to cover the real encounter
+## (CrawlerBoss.gd's own anchor/escape-marker layout is the actual
+## authority on how long the fight plays out; this just has to be at
+## least that long so ordinary Wasteland content never spawns inside it).
+## Sized from real QA (tools/Crawler-Boss-QA.gd): the Crawler keeps moving
+## the whole time it's ACTIVE, so a slow/struggling real attempt can cover
+## well more raw distance than the encounter's own ~90m body length before
+## catching up — 700m proved too narrow in testing (a real run's own
+## `distance` metric can end up past boss_end while still mid-encounter),
+## so this is deliberately generous rather than tightly fitted.
+const WASTELAND_BOSS_LENGTH: float = 2600.0
+## Spec section 45: avoid an event window ending right at the boss's own
+## doorstep — widen suppression backward by this much too.
+const WASTELAND_BOSS_PRE_BUFFER: float = 150.0
+
+static func wasteland_boss_start_distance() -> float:
+ return DifficultyDirector.wasteland_start_distance() + WASTELAND_BOSS_START_DISTANCE
+
+static func wasteland_boss_end_distance() -> float:
+ return wasteland_boss_start_distance() + WASTELAND_BOSS_LENGTH
+
+static func is_wasteland_boss_zone(distance: float) -> bool:
+ return distance >= wasteland_boss_start_distance() and distance < wasteland_boss_end_distance()
+
+static func is_wasteland_boss_window(distance: float) -> bool:
+ return distance >= wasteland_boss_start_distance() - WASTELAND_BOSS_PRE_BUFFER and distance < wasteland_boss_end_distance()
 
 const ARCHETYPE_POWERLINE: String = "POWERLINE"
 const ARCHETYPE_BROKEN_HIGHWAY: String = "BROKEN_HIGHWAY"
@@ -247,6 +292,10 @@ func event_type_for_window(window_index: int) -> String:
 ## DifficultyDirector's own City event/tier logic.
 func event_for_chunk(index: int) -> String:
  if index < first_chunk_index() + EVENT_ENTRY_SAFE_CHUNKS:
+  return EVENT_NONE
+ # PHASE W-E spec section 44/45: no Dust/Turbine/Crane inside (or right
+ # before) the Crawler Boss window — the boss itself is the challenge.
+ if is_wasteland_boss_window(float(index) * LENGTH):
   return EVENT_NONE
  var window: Dictionary = event_window_for_index(index)
  if index >= window.end_index:
@@ -482,17 +531,22 @@ func create_chunk(index: int) -> void:
 
  var archetype: String = archetype_for(index)
  spawn_route_anchors(chunk, index, archetype, chain)
- match archetype:
-  ARCHETYPE_POWERLINE:
-   spawn_powerline_landmark(chunk, chain)
-  ARCHETYPE_BROKEN_HIGHWAY:
-   spawn_broken_highway_landmark(chunk, chain)
-  ARCHETYPE_INDUSTRIAL_RUINS:
-   spawn_industrial_ruins_landmark(chunk, chain)
-  ARCHETYPE_OPEN_WASTELAND:
-   spawn_open_wasteland_landmark(chunk, index, chain)
-  ARCHETYPE_CLIFF_FRAME:
-   spawn_cliff_frame_landmark(chunk, chain)
+ # PHASE W-E spec section 43: no archetype set-piece clutter inside the
+ # Crawler's own encounter zone — the boss is the content there. The
+ # guaranteed anchor_chain() above is still placed as normal (a fallback
+ # safety net matching every other chunk's own traversability guarantee).
+ if not is_wasteland_boss_zone(float(index) * LENGTH):
+  match archetype:
+   ARCHETYPE_POWERLINE:
+    spawn_powerline_landmark(chunk, chain)
+   ARCHETYPE_BROKEN_HIGHWAY:
+    spawn_broken_highway_landmark(chunk, chain)
+   ARCHETYPE_INDUSTRIAL_RUINS:
+    spawn_industrial_ruins_landmark(chunk, chain)
+   ARCHETYPE_OPEN_WASTELAND:
+    spawn_open_wasteland_landmark(chunk, index, chain)
+   ARCHETYPE_CLIFF_FRAME:
+    spawn_cliff_frame_landmark(chunk, chain)
  # PHASE W-C: deterministic Wasteland event (spec sections 1/6/7) — replaces
  # the old W-A/W-B random 1/8 ambient crane/turbine roll entirely, so a
  # crane/turbine sighting now reliably means "this is an event", not
