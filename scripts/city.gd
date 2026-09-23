@@ -79,7 +79,7 @@ const CAR_SPEED: float = 4.0
 ## alone (BACKGROUND_NEAR/MID/FAR_X below, well outside the playable
 ## buildings' ~7.4-15.4m band) is what actually keeps them from ever
 ## touching, not height.
-const BACKGROUND_Y: float = -18.0
+const BACKGROUND_Y: float = -4.0
 const BACKGROUND_TINT := Color(0.62, 0.68, 0.76)
 ## Buildings spread along each chunk's own depth per (side, distance-band) —
 ## was implicitly 1 (a single fixed spot per band); this many roughly
@@ -91,6 +91,8 @@ const BACKGROUND_SUBSLOTS: int = 4
 ## edge rather than needing it to visually reach BACKGROUND_Y (-55) itself.
 const FOUNDATION_DEPTH: float = 40.0
 var bg_material_cache: Dictionary = {}
+var facade_material_cache: Dictionary = {}
+var building_bounds: Dictionary = {}
 var _bg_ground_material: StandardMaterial3D
 var chunks: Dictionary = {}
 var pickups: Array[Node3D] = []
@@ -100,6 +102,31 @@ var high_level: int = 0
 var practice: bool = false
 var material_cache: Dictionary = {}
 var locale = Locale.new()
+## WASTELAND PHASE W-A: optional extra chunk containers (Main sets this to
+## [wasteland] once, after creating both) whose own "hookable" children
+## range_limited_target()'s far-aim assist AND validate_manual_point()'s own
+## ownership check (see owns_target_surface() below) should also accept.
+## City never reads/writes anything else about them — this is the only
+## place aim-assist/validation needed to become chunk-source-agnostic so
+## Wasteland's own structures get exactly the same reachable-surface
+## behavior City's buildings already have.
+var extra_target_roots: Array = []
+
+## True if `surface` is a real hookable node City itself owns, OR one
+## belonging to any of extra_target_roots (Wasteland's own chunks). Direct
+## City.manual_target() raycasts already hit Wasteland's colliders fine
+## (physics queries are world-space, not node-tree-scoped) — this is the
+## one place that previously assumed "hookable" always meant "a descendant
+## of City", silently rejecting every real, valid Wasteland target with the
+## same generic "AIM AT A SURFACE" reason a truly-empty raycast uses (found
+## via a real-physics Wasteland route QA harness, not a theoretical review).
+func owns_target_surface(surface: Node3D) -> bool:
+ if is_ancestor_of(surface):
+  return true
+ for root in extra_target_roots:
+  if is_instance_valid(root) and root.is_ancestor_of(surface):
+   return true
+ return false
 
 func material(color: Color, glow: bool = false) -> StandardMaterial3D:
  var key: String = color.to_html() + str(glow)
@@ -159,7 +186,15 @@ func box(parent: Node3D, pos: Vector3, size: Vector3, color: Color, solid: bool 
 func update_chunks(distance: float, attached: Node3D = null, extra_anchors: Array[Node3D] = []) -> void:
  apply_height_level(DifficultyDirector.get_city_difficulty(distance).building_height_level)
  var current: int = floori(distance / LENGTH)
- for index in range(maxi(0, current - 1), current + 6):
+ # WASTELAND PHASE W-A: City's own chunk territory ends at the exit
+ # regardless of practice mode — Wasteland (scripts/wasteland.gd) owns
+ # everything at/after that same index, and practice used to keep
+ # generating MORE City chunks indefinitely here only because there was
+ # nothing else to hand off to. Non-practice already capped here before
+ # this phase; this just makes practice consistent with it instead of
+ # double-generating City content over Wasteland's own territory.
+ var stream_end: int = mini(current + 6, ceili(DifficultyDirector.rest_area_end_distance() / LENGTH))
+ for index in range(maxi(0, current - 1), stream_end):
   if not chunks.has(index):
    create_chunk(index)
  for key in chunks.keys():
@@ -237,25 +272,30 @@ func create_chunk(index: int) -> void:
   sidewalk.position = Vector3(side * 7.2, 0.06 - (FOUNDATION_DEPTH + 0.06) * 0.5, -32)
   sidewalk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
   chunk.add_child(sidewalk)
+  # Paved frontage under both occupied and empty building slots joins the
+  # narrow road edge to the surrounding city without widening the road.
+  box(chunk, Vector3(side * 11.4, -0.2, -32), Vector3(8, 0.4, LENGTH), Color("35444d"))
   for b in range(4):
    if not has_building(index, b, side):
     continue
    var z: float = -8 - b * 16
-   var base_height: float = 23 + posmod(index * 7 + b * 3 + side, 5) * 3
+   var seed: int = city_hash(index * 17 + b * 5 + side * 113)
+   var base_height: float = 23 + seed % 5 * 3
+   if index < 2:
+    base_height = 23 + posmod(index * 7 + b * 3 + side, 5) * 3
    var building := box(chunk, Vector3(side * 11.4, 0, z), Vector3(8, base_height, 14), Color("233c56") if (index + b) % 2 == 0 else Color("294860"), true)
    building.set_meta("hookable", true)
    building.set_meta("building", true)
    building.set_meta("base_height", base_height)
-   building.set_meta("model_seed", index * 3 + b + side)
+   building.set_meta("model_seed", city_hash(seed + 41))
    building.set_meta("road_side", side)
    attach_realistic_building(building, 8, 14)
    # Windows are local to the grounded building origin, so upgrades never move a hook.
    var windows := Node3D.new()
    windows.name = "Windows"
    building.add_child(windows)
-   for floor_index in range(2, 23):
-    var window := box(windows, Vector3(-side * 4.06, floor_index * 3, 0), Vector3(0.06, 0.7, 10), Color("39566e"))
-    window.set_meta("floor_height", floor_index * 3)
+   # The imported facades supply windows; the old 42 hidden nodes per
+   # building were never rendered, but were rebuilt at every chunk seam.
    resize_building(building)
    if index * LENGTH < SAFE_ZONE_DISTANCE:
     add_safe_zone_marking(building, side)
@@ -277,6 +317,7 @@ func create_chunk(index: int) -> void:
   box(chunk, Vector3(0, 0.025, -stripe * 8 - 4), Vector3(0.08, 0.035, 3), Color("45627a"))
  var event: String = event_for_chunk(index)
  var rest_zone: bool = DifficultyDirector.is_rest_zone(index * LENGTH)
+ decorate_route(chunk, index, event, rest_zone)
  # SKY GAP is a "no vehicles" event by definition (PHASE B spec section 13);
  # the Rest Area (PHASE C section 26: "차량 없음 또는 극소수") gets the same
  # treatment; TRAFFIC SURGE instead raises density on an otherwise-normal chunk.
@@ -420,10 +461,13 @@ func spawn_background_city(chunk: Node3D, index: int) -> void:
  for side in [-1, 1]:
   for band in range(band_distances.size()):
    for sub in range(BACKGROUND_SUBSLOTS):
-    var block: int = index * 31 + side * 13 + band * 7 + sub
+    var block: int = city_hash(index * 31 + side * 13 + band * 7 + sub)
     # Only the farthest band thins out at all, and only lightly — every
     # nearer band always spawns so the skyline never looks empty.
     if band == band_distances.size() - 1 and posmod(block, 4) == 0:
+     continue
+    var open_route: bool = event_for_chunk(index) == DifficultyDirector.EVENT_SKY_GAP or event_for_chunk(index + 1) == DifficultyDirector.EVENT_SKY_GAP
+    if band == 0 and (open_route or DifficultyDirector.is_rest_zone(index * LENGTH)) and sub % 2 == 1:
      continue
     var distance: float = band_distances[band]
     var model_index: int = posmod(block, BUILDING_MODELS.size())
@@ -432,7 +476,7 @@ func spawn_background_city(chunk: Node3D, index: int) -> void:
     var depth: float = 8.0 + posmod(block + 1, 3) * 1.5
     var model: Node3D = BUILDING_MODELS[model_index].instantiate()
     chunk.add_child(model)
-    var box: AABB = model_aabb(model)
+    var box: AABB = building_model_bounds(model_index, model)
     if box.size.x <= 0 or box.size.y <= 0 or box.size.z <= 0:
      model.free()
      continue
@@ -456,7 +500,7 @@ func spawn_background_city(chunk: Node3D, index: int) -> void:
 ## metadata, not part of the hookable StaticBody3D's own shape.
 func add_safe_zone_marking(building: Node3D, side: int) -> void:
  for h in [2.4, 5.2]:
-  var band := box(building, Vector3(-side * 4.1, h, 0), Vector3(0.08, 0.28, 13), SAFE_ZONE_COLOR, false, true)
+  var band := box(building, Vector3(-side * 4.1, h, 0), Vector3(0.08, 0.18, 11), SAFE_ZONE_COLOR)
   band.get_child(0).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 ## PHASE C spec section 36: "Wasteland Entry Placeholder" — a purely
@@ -470,9 +514,65 @@ func spawn_wasteland_gate_if_boundary(chunk: Node3D, index: int) -> void:
  if index != floori(DifficultyDirector.rest_area_end_distance() / LENGTH):
   return
  var gate_color := Color("7a5a3f")
+ var gate_z: float = index * LENGTH - DifficultyDirector.rest_area_end_distance()
  for side in [-1, 1]:
-  box(chunk, Vector3(side * 7.0, 9.0, -32.0), Vector3(1.2, 18.0, 1.2), gate_color)
- box(chunk, Vector3(0, 17.5, -32.0), Vector3(15.2, 1.0, 1.2), Color("d98a3d"), false, true)
+  box(chunk, Vector3(side * 7.7, 9.0, gate_z), Vector3(1.2, 18.0, 1.2), gate_color)
+ box(chunk, Vector3(0, 17.5, gate_z), Vector3(16.6, 1.0, 1.2), Color("3fa89c"))
+ route_sign(chunk, Vector3(0, 15.5, gate_z + 0.7), "CITY LIMIT", Color("76efdc"))
+
+static func city_hash(value: int) -> int:
+ var mixed: int = (value ^ (value >> 16)) * 73244475
+ return posmod(mixed ^ (mixed >> 13), 2147483647)
+
+func building_model_bounds(index: int, model: Node3D) -> AABB:
+ if not building_bounds.has(index):
+  building_bounds[index] = model_aabb(model)
+ return building_bounds[index]
+
+func route_sign(chunk: Node3D, pos: Vector3, text: String, color: Color) -> void:
+ for side in [-1, 1]:
+  box(chunk, Vector3(side * 7.2, pos.y * 0.5, pos.z - 0.2), Vector3(0.12, pos.y, 0.12), Color("51626a"))
+ box(chunk, pos + Vector3(0, 0.8, -0.2), Vector3(14.5, 0.12, 0.12), Color("51626a"))
+ box(chunk, pos - Vector3(0, 0, 0.12), Vector3(5.2, 1.4, 0.18), Color("182c38"))
+ var label := Label3D.new()
+ label.set_meta("route_text", text)
+ label.add_to_group("city_route_signs")
+ label.position = pos
+ label.text = locale.text(text)
+ label.font = Locale.FONT
+ label.font_size = 64
+ label.pixel_size = 0.012
+ label.modulate = color
+ label.outline_size = 0
+ chunk.add_child(label)
+
+func decorate_route(chunk: Node3D, index: int, event: String, rest: bool) -> void:
+ var previous: String = event_for_chunk(maxi(0, index - 1))
+ var next: String = event_for_chunk(index + 1)
+ if not practice and (index + 1) * LENGTH >= DifficultyDirector.rest_area_end_distance():
+  next = DifficultyDirector.EVENT_NONE
+ if event != DifficultyDirector.EVENT_NONE and event != previous:
+  route_sign(chunk, Vector3(0, 7, -3), "SKY ROUTE" if event == DifficultyDirector.EVENT_SKY_GAP else "TRAFFIC", Color("ffc876"))
+ if next == DifficultyDirector.EVENT_SKY_GAP and event != next:
+  # Open the near background and preview the drone route at the approach;
+  # keep the reachable building surfaces and all physics intact.
+  route_sign(chunk, Vector3(0, 7, -52), "SKY ROUTE", Color("ffc876"))
+ if event != DifficultyDirector.EVENT_NONE and next != event:
+  for side in [-1, 1]:
+   box(chunk, Vector3(side * 7.2, 2, -62), Vector3(0.16, 4, 0.16), SAFE_ZONE_COLOR, false, true)
+ if not rest:
+  return
+ for side in [-1, 1]:
+  # Broad frontage connects the empty road to the building line. These
+  # checkpoint props sit outside the player corridor and add no colliders.
+  box(chunk, Vector3(side * 10.5, -0.3, -32), Vector3(6.2, 0.6, 64), Color("39454b"))
+  for z in [-12, -44]:
+   box(chunk, Vector3(side * 7.6, 0.6, z), Vector3(0.5, 1.2, 9), Color("73857f"))
+ if index % 2 == 0:
+  var booth_side: int = -1 if has_building(index, 1, 1) else 1
+  box(chunk, Vector3(booth_side * 9.0, 1.5, -30), Vector3(2.4, 3, 3), Color("465e65"))
+  box(chunk, Vector3(booth_side * 9.0, 3.1, -30), Vector3(3, 0.2, 3.6), Color("22353e"))
+  route_sign(chunk, Vector3(0, 6, -32), "CHECKPOINT" if index < 77 else "CITY EXIT", SAFE_ZONE_COLOR)
 
 func start_height() -> float:
  var roof: float = 100
@@ -640,11 +740,9 @@ func apply_uv_tiling(node: Node, scale: Vector3) -> void:
  # Non-uniform scaling stretches a mesh's geometry without touching its UVs,
  # which smears whatever texture detail sits along the stretched axis into a
  # long streak (e.g. a small trim/accent color turning into a solid band).
- # Scaling uv1_scale by the same factor makes the texture repeat instead of
- # smear, keeping brick/window texel size roughly constant. Every building
- # of a given model shares the same footprint (so the same horizontal
- # stretch), so this is applied to the model's shared materials directly
- # rather than duplicating a Material per building instance.
+ # Cache a surface override per source and scale. Imported materials stay
+ # immutable: spawning a different height must not retile older buildings
+ # or change the background's material source.
  if node is MeshInstance3D and node.mesh != null:
   for i in range(node.mesh.get_surface_count()):
    var mat: Material = node.mesh.surface_get_material(i)
@@ -656,6 +754,11 @@ func apply_uv_tiling(node: Node, scale: Vector3) -> void:
     # COLOR_0 exists, so that baked red was getting multiplied straight
     # into the albedo — nothing to do with the actual brick texture (which
     # has no red pixels at all) or with UV scale/tiling.
+    var key: String = str(mat.get_instance_id()) + ":" + str(scale)
+    if facade_material_cache.has(key):
+     node.set_surface_override_material(i, facade_material_cache[key])
+     continue
+    mat = mat.duplicate()
     mat.vertex_color_use_as_albedo = false
     # Only the main wall material is authored to tile seamlessly at any
     # scale; trim/cornice/glass/interior materials are small decorative
@@ -672,6 +775,8 @@ func apply_uv_tiling(node: Node, scale: Vector3) -> void:
     # touching the diffuse albedo (so the material still reads as the same
     # brick/trim color, just less shiny).
     mat.metallic_specular = 0.2
+    facade_material_cache[key] = mat
+    node.set_surface_override_material(i, mat)
  for child in node.get_children():
   apply_uv_tiling(child, scale)
 
@@ -680,7 +785,7 @@ func attach_realistic_building(building: Node3D, width: float, depth: float) -> 
  var model: Node3D = BUILDING_MODELS[index].instantiate()
  model.name = "RealisticModel"
  building.add_child(model)
- model.set_meta("base_aabb", model_aabb(model))
+ model.set_meta("base_aabb", building_model_bounds(index, model))
  model.set_meta("footprint", Vector2(width, depth))
  update_realistic_scale(building)
  # The flat box mesh (child 0) stays as the real collision anchor for the
@@ -784,7 +889,11 @@ func range_limited_target(from: Vector3, desired: Vector3, reach: float, exclude
  var aim: Vector3 = (desired - from).normalized()
  var limit_point: Vector3 = from + aim * reach
  var candidates: Array[Dictionary] = []
- for chunk in chunks.values():
+ var surface_parents: Array = chunks.values()
+ for root in extra_target_roots:
+  if is_instance_valid(root):
+   surface_parents.append_array(root.get_children())
+ for chunk in surface_parents:
   for surface in chunk.get_children():
    if not surface.get_meta("hookable", false):
     continue
@@ -845,7 +954,7 @@ func wire_path_blocked(from: Vector3, to: Vector3, exclude: RID, attached_surfac
  return not get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 func validate_manual_point(from: Vector3, surface_point: Vector3, normal: Vector3, surface: Node3D, reach: float, exclude: RID) -> Dictionary:
- if not is_instance_valid(surface) or not is_ancestor_of(surface) or not surface.get_meta("hookable", false):
+ if not is_instance_valid(surface) or not owns_target_surface(surface) or not surface.get_meta("hookable", false):
   return {"valid": false, "reason": "AIM AT A SURFACE"}
  # Keep the endpoint just outside the wall so its own surface cannot occlude the rope.
  var point: Vector3 = surface_point + normal * 0.08

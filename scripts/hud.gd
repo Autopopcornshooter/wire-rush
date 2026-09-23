@@ -37,6 +37,7 @@ const PAUSE_ICON_SIZE: float = 28.0
 const PAUSE_DOT_H: float = 12.0
 const PAUSE_ICON_ROW_GAP: float = 8.0
 const PAUSE_ICON_PAD: float = 12.0
+const PAUSE_ICON_COLUMNS: int = 3
 const PAUSE_SECTION_GAP: float = 16.0
 const PAUSE_KEY_ROWS: Array = [
  ["LMB/RMB", "HOOK + REEL"],
@@ -94,7 +95,7 @@ func rebuild_buttons() -> void:
   add_button("Practice", Rect2(76, 496, 340, 54), func(): game.start_run(true))
   add_button("SETTINGS", Rect2(76, 563, 164, 40), game.open_settings)
   add_button("QUIT", Rect2(252, 563, 164, 40), func(): game.get_tree().quit())
- elif game.phase == "dead":
+ elif game.phase in ["dead", "complete"]:
   add_button("RUN AGAIN   /   R", Rect2(440, 495, 400, 54), func(): game.start_run(game.training))
   add_button("MAIN MENU", Rect2(440, 563, 400, 46), game.return_menu)
  elif game.phase == "paused":
@@ -136,7 +137,7 @@ func pause_layout() -> Dictionary:
  var key_box_h: float = PAUSE_KEY_PAD * 2 + PAUSE_KEY_ROWS.size() * PAUSE_KEY_ROW_H
  var icon_list_h: float = 0.0
  if owned.size() > 0:
-  icon_list_h = PAUSE_ICON_PAD * 2 + owned.size() * (PAUSE_ICON_SIZE + PAUSE_DOT_H + PAUSE_ICON_ROW_GAP) - PAUSE_ICON_ROW_GAP
+  icon_list_h = PAUSE_ICON_PAD * 2 + ceili(float(owned.size()) / PAUSE_ICON_COLUMNS) * (PAUSE_ICON_SIZE + PAUSE_DOT_H + PAUSE_ICON_ROW_GAP) - PAUSE_ICON_ROW_GAP
  var right_h: float = key_box_h + (PAUSE_SECTION_GAP + icon_list_h if owned.size() > 0 else 0.0)
  var left_h: float = PAUSE_TITLE_H + 3 * PAUSE_BUTTON_H + 2 * PAUSE_BUTTON_GAP
  var content_h: float = maxf(left_h, right_h)
@@ -253,7 +254,7 @@ func _draw() -> void:
  draw_xp_bar(now)
  draw_levelup_popup(now)
  draw_signal_subtitle(now)
- if game.phase in ["paused", "dead", "upgrade", "countdown"]:
+ if game.phase in ["paused", "dead", "upgrade", "countdown", "complete"]:
   draw_rect(Rect2(0, 0, 1280, 720), Color(0.015, 0.035, 0.07, 0.75))
  if game.phase == "paused":
   var layout: Dictionary = pause_layout()
@@ -261,9 +262,11 @@ func _draw() -> void:
   label_centered(layout.title_center.x, layout.title_center.y, "PAUSED", 28, cyan)
   draw_pause_key_box(layout.key_box)
   draw_pause_upgrade_list(layout.icon_list, layout.owned)
- elif game.phase == "dead":
+ elif game.phase in ["dead", "complete"]:
   panel(Rect2(382, 155, 516, 480))
-  label_at(Vector2(437, 205), "RESULT", 30, cyan)
+  label_at(Vector2(437, 205), "CITY COMPLETE" if game.phase == "complete" else "RESULT", 30, cyan)
+  if game.phase == "complete":
+   label_at(Vector2(440, 310), "The signal continues beyond the city...", 17, muted, 400)
   label_at(Vector2(435, 270), "%04d m" % game.distance, 54)
   label_at(Vector2(440, 350), t("Top speed  %.1f m/s") % game.rider.high_speed, 19, white, 400)
   label_at(Vector2(440, 382), t("Level  %d") % game.level, 19, white, 400)
@@ -342,9 +345,11 @@ func draw_pause_upgrade_list(rect: Rect2, owned: Array) -> void:
  if owned.is_empty():
   return
  draw_style_box(style(Color(0.06, 0.1, 0.15, 0.85)), rect)
- var cx: float = rect.position.x + rect.size.x * 0.5
- var y: float = rect.position.y + PAUSE_ICON_PAD
- for key in owned:
+ var cell_width: float = (rect.size.x - PAUSE_ICON_PAD * 2) / PAUSE_ICON_COLUMNS
+ for index in range(owned.size()):
+  var key: String = owned[index]
+  var cx: float = rect.position.x + PAUSE_ICON_PAD + (index % PAUSE_ICON_COLUMNS + 0.5) * cell_width
+  var y: float = rect.position.y + PAUSE_ICON_PAD + floori(float(index) / PAUSE_ICON_COLUMNS) * (PAUSE_ICON_SIZE + PAUSE_DOT_H + PAUSE_ICON_ROW_GAP)
   var tex: Texture2D = upgrade_icon(key)
   draw_texture_rect(tex, Rect2(cx - PAUSE_ICON_SIZE * 0.5, y, PAUSE_ICON_SIZE, PAUSE_ICON_SIZE), false, cyan)
   var tier: int = game.rider.tiers[key]
@@ -352,7 +357,6 @@ func draw_pause_upgrade_list(rect: Rect2, owned: Array) -> void:
   var start_x: float = cx - (tier - 1) * dot_gap * 0.5
   for i in range(tier):
    draw_circle(Vector2(start_x + i * dot_gap, y + PAUSE_ICON_SIZE + 7), 2.5, cyan)
-  y += PAUSE_ICON_SIZE + PAUSE_DOT_H + PAUSE_ICON_ROW_GAP
 
 ## Lists every non-armor ability picked up this run (skipped entirely if
 ## none were), each as "DISPLAY NAME  xN" using the same tier count already

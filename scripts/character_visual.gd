@@ -313,25 +313,6 @@ func get_wire_grip_position() -> Vector3:
 		return (_left_hand_grip.global_position + _right_hand_grip.global_position) * 0.5
 	return global_position
 
-## Forensic-only: this should structurally never fire (see the call site in
-## _process() below), but a wide simulated stress test (long jumps, double
-## jumps, swing apex/release, long falls, armor-hit invincible falls — 980
-## frames, zero repro) couldn't reproduce a real report of it happening in
-## actual play, so this writes a full snapshot to user://animation_debug.log
-## (same folder as records.cfg/settings.cfg) the moment it ever does, rather
-## than guessing further. Safe to delete this function and its one call site
-## once the real cause is confirmed fixed.
-func log_air_pose_violation(state: String) -> void:
-	var f := FileAccess.open("user://animation_debug.log", FileAccess.READ_WRITE if FileAccess.file_exists("user://animation_debug.log") else FileAccess.WRITE)
-	if f == null:
-		return
-	f.seek_end()
-	f.store_line("[%.3f] AIR_POSE_VIOLATION state=%s mode=%s velocity=%s position=%s swing_phase=%s slide_phase=%s landing_timer=%.3f anchor_valid=%s hook_connected=%s" % [
-		Time.get_ticks_msec() / 1000.0, state, rider.mode, rider.velocity, rider.position,
-		_swing_phase, _slide_phase, _landing_timer, is_instance_valid(rider.anchor), rider.hook_connected,
-	])
-	f.close()
-
 func _process(delta: float) -> void:
 	if rider == null or playback == null:
 		return
@@ -394,8 +375,6 @@ func _process(delta: float) -> void:
 	if target_state != current_state:
 		current_state = target_state
 		playback.travel(target_state)
-		if rider.mode == "air" and target_state in ["walking", "left_strafe_walk", "right_strafe_walk", "idle"]:
-			log_air_pose_violation(target_state)
 	# Armor active/inactive reads straight off the owned charge count — not
 	# the brief post-hit invincibility window — so it stays on the whole
 	# time armor is held in reserve and turns off the instant a hit spends

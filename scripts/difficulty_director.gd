@@ -193,3 +193,23 @@ static func chapter_for_distance(distance: float) -> String:
  if is_rest_zone(distance):
   return CHAPTER_REST
  return CHAPTER_COMPLETE
+
+# ---------------------------------------------------------------------
+# WASTELAND PHASE W-A: chapter-boundary classification only. Reuses
+# rest_area_end_distance() as the single source of truth for "where City
+# ends" instead of a second hardcoded 5100 literal (spec section 5) — moving
+# CITY_BOSS_ESCAPE_DISTANCE/REST_AREA_LENGTH still moves this boundary
+# automatically, exactly like it already does for chapter_for_distance()
+# above. Deliberately a SEPARATE predicate from chapter_for_distance()
+# rather than a new branch inside it: chapter_for_distance()'s CHAPTER_
+# COMPLETE return for every distance beyond the Rest Area is an existing,
+# tested contract (tests/city_boss.gd) that this phase does not touch —
+# "am I in Wasteland" is an orthogonal world-generation question Wasteland's
+# own chunk streaming (scripts/wasteland.gd) and Main answer with this
+# instead, never by changing what CHAPTER_COMPLETE itself means.
+# ---------------------------------------------------------------------
+static func wasteland_start_distance() -> float:
+ return rest_area_end_distance()
+
+static func is_wasteland(distance: float) -> bool:
+ return distance >= wasteland_start_distance()

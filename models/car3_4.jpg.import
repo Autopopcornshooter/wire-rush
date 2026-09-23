@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dgwsn7l3v04wt"
-path="res://.godot/imported/car3_4.jpg-c8abee6ee50d5e26a1592d9be1417178.ctex"
+path.s3tc="res://.godot/imported/car3_4.jpg-c8abee6ee50d5e26a1592d9be1417178.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "fa42abedafea8f8685419da636bf99f5"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://models/car3_4.jpg"
-dest_files=["res://.godot/imported/car3_4.jpg-c8abee6ee50d5e26a1592d9be1417178.ctex"]
+dest_files=["res://.godot/imported/car3_4.jpg-c8abee6ee50d5e26a1592d9be1417178.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

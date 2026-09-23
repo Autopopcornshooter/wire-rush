@@ -2,6 +2,13 @@ extends RefCounted
 const FONT = preload("res://assets/fonts/ui_font.tres")
 var language: String = "ko"
 const KO: Dictionary = {
+ "CITY COMPLETE": "도시 탈출 완료",
+ "The signal continues beyond the city...": "신호는 도시 너머로 이어진다...",
+ "CITY LIMIT": "도시 경계",
+ "CHECKPOINT": "검문소",
+ "SKY ROUTE": "공중 경로",
+ "TRAFFIC": "차량 밀집",
+ "CITY EXIT": "도시 출구",
  "...are you listening?": "...듣고 있어?",
  "We need to get out of the city.": "도시 밖으로 나가야 해.",
  "I didn't think you'd make it this far...": "여기까지 올 줄은 몰랐는데...",

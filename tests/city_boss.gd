@@ -145,7 +145,8 @@ func run() -> void:
   prev_blink = cur_blink
   t += sample_dt
  check(blink_transitions == CityBoss.WARNING_BLINK_COUNT * 2 - 1, "the warning blinks ON/OFF/ON/OFF/ON/OFF exactly %d times before going active" % CityBoss.WARNING_BLINK_COUNT)
- check(is_equal_approx(CityBoss.PATH_BLOCK_TELEGRAPH, CityBoss.WARNING_TOTAL_DURATION), "PATH_BLOCK's telegraph is exactly the shared 3-blink warning duration")
+ check(is_equal_approx(CityBoss.PATH_BLOCK_TELEGRAPH, CityBoss.WARNING_TOTAL_DURATION * CityBoss.EXTENDED_WARNING_TIME_SCALE), "PATH_BLOCK's telegraph runs at the same stretched (EXTENDED_WARNING_TIME_SCALE) cadence as LASER_PLANE, not the bare 3-blink duration")
+ check(is_equal_approx(CityBoss.PATH_BLOCK_TELEGRAPH, CityBoss.LASER_TELEGRAPH), "PATH_BLOCK's warning-to-active time now matches LASER_PLANE's exactly")
 
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.PATH_BLOCK_TELEGRAPH * 0.5)
  check(not game.boss.block_node.monitoring, "collision stays OFF partway through the warning blink, regardless of blink phase")
@@ -236,7 +237,7 @@ func run() -> void:
  check(is_equal_approx(laser_shape.size.y, current_top * 0.5), "the laser volume is a full half of the current usable building height, not a thin slab")
  check(is_equal_approx(laser_shape.size.z, CityBoss.PATTERN_ZONE_DEPTH), "the laser's Z depth covers the full pattern zone, not a thin slice")
  check(is_equal_approx(game.boss.active_duration("LASER_PLANE"), 2.0), "LASER_PLANE's active duration is exactly 2.0 seconds")
- check(is_equal_approx(CityBoss.LASER_TELEGRAPH, CityBoss.WARNING_TOTAL_DURATION), "LASER_PLANE's telegraph is exactly the shared 3-blink warning duration")
+ check(is_equal_approx(CityBoss.LASER_TELEGRAPH, CityBoss.WARNING_TOTAL_DURATION * 1.5), "LASER_PLANE's warning runs at two thirds of the side laser speed")
 
  advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, CityBoss.LASER_TELEGRAPH * 0.5)
  check(not game.boss.laser_node.monitoring, "collision stays OFF partway through the warning blink")
@@ -535,10 +536,178 @@ func run() -> void:
  game.locale.language = "ko"
 
  await runtime_regressions()
+ await boss_visual_pass()
+ await boss_high_pass()
  print("CITY_BOSS_RESULT ", checks - failures, "/", checks, " passed; failures=", failures)
  game.free()
  await process_frame
  quit(0 if failures == 0 else 1)
+
+## Boss visual pass (boss drone.glb integration, 2x scale, eye laser VFX):
+## verifies the new node structure exists, the eye charges with the
+## existing 3-blink warning, a beam fires exactly at ACTIVE and points at
+## the hazard's own real center, and every VFX node this pass adds is
+## cleaned up on RECOVERY/ESCAPE — never anything about hazard position,
+## size, timing, collision, or Robot Barrage trajectory, all of which stay
+## covered by the untouched checks above.
+func boss_high_pass() -> void:
+ await fixture()
+ var boss: Node3D = game.boss
+ boss.rider = game.rider
+ boss.city = game.city
+ boss.global_position = Vector3(0, 25, -2010)
+ boss.visible = true
+ boss.state = CityBoss.STATE_ACTIVE
+ boss.idle_motion(0.37)
+ check(boss.sensor_ring.material_override.no_depth_test, "boss sensor remains readable through a near drone")
+ check(boss.eye_glow_material.no_depth_test, "charged eye remains readable behind foreground geometry")
+ for upper in [true, false]:
+  boss.cleanup_pattern_nodes()
+  boss.laser_upper = not upper
+  boss.start_pattern(CityBoss.PATTERN_LASER_PLANE)
+  check(boss.safe_direction.visible, "B warning displays a world-space safe direction")
+  check(boss.safe_direction.transform.basis.y.y < 0 if upper else boss.safe_direction.transform.basis.y.y > 0, "B direction points toward the unblocked half")
+  check(not boss.laser_node.monitoring, "safe direction does not activate warning collision")
+  boss.set_pattern_collision(true)
+  var old_relative: Vector3 = boss.eye_emitter.global_position - game.rider.global_position
+  var old_flash: Vector3 = boss.temporary_fx.back().global_position - game.rider.global_position
+  game.rider.position.z += 2048
+  boss.rebase(2048)
+  check((boss.eye_emitter.global_position - game.rider.global_position).is_equal_approx(old_relative), "eye remains hull-relative across origin shift")
+  check((boss.temporary_fx.back().global_position - game.rider.global_position).is_equal_approx(old_flash), "impact flash rebases with the hazard")
+  boss.tick_pattern_visual()
+  var core: MeshInstance3D = boss.beam_node.get_node("Core")
+  var p0: Vector3 = core.to_global(Vector3(0, -0.5, 0))
+  var p1: Vector3 = core.to_global(Vector3(0, 0.5, 0))
+  check(minf(p0.distance_to(boss.eye_emitter.global_position), p1.distance_to(boss.eye_emitter.global_position)) < 0.001, "beam still starts at eye after origin shift")
+  boss.set_pattern_collision(false)
+  check(not boss.safe_direction.visible, "B recovery removes the direction cue")
+ boss.cleanup_pattern_nodes()
+ boss.cleanup_temporary_fx()
+ boss.spawn_robot(-3.7)
+ var old_robot: Vector3 = boss.barrage_robots.back().global_position
+ var old_launch: Vector3 = boss.temporary_fx.back().global_position
+ boss.rebase(2048)
+ check(boss.barrage_robots.back().global_position.is_equal_approx(old_robot + Vector3(0, 0, 2048)), "flying robot is rebased exactly once")
+ check(boss.temporary_fx.back().global_position.is_equal_approx(old_launch + Vector3(0, 0, 2048)), "launch flash is rebased exactly once")
+ for offset in CityBoss.ROBOT_LAUNCH_X:
+  boss.idle_motion(0.25)
+  boss.spawn_robot(offset)
+  var robot: Node3D = boss.barrage_robots.back()
+  var expected: Vector3 = boss.global_position + CityBoss.ROBOT_LAUNCH_OFFSET + Vector3(offset, 0, 0)
+  check(robot.global_position.is_equal_approx(expected), "new robot spawns at hull after barrage root was rebased")
+  check(boss.temporary_fx.back().global_position.is_equal_approx(robot.global_position), "launch flash matches actual robot exit despite hover and rebase")
+ boss.start_escape()
+ check(boss.temporary_fx.is_empty() and boss.fx_tweens.is_empty(), "escape clears all transient flashes and their tweens immediately")
+ check(boss.barrage_robots.is_empty() and not boss.safe_direction.visible, "escape clears robots and safe direction")
+ await process_frame
+ var settled: int = boss.get_child_count()
+ for i in 12:
+  boss.state = CityBoss.STATE_ACTIVE
+  boss.start_pattern(CityBoss.PATTERN_LASER_PLANE)
+  boss.set_pattern_collision(true)
+  boss.spawn_robot(0)
+  boss.start_escape()
+  await process_frame
+ check(boss.get_child_count() == settled, "twelve repeated attacks and escapes do not accumulate transient nodes")
+
+func boss_visual_pass() -> void:
+ await fixture()
+ game.city.practice = false
+ game.city.apply_height_level(3)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.rider.position = Vector3(0, 5, -200)
+
+ check(is_instance_valid(game.boss.model_root), "ModelRoot exists and holds the real boss drone.glb")
+ check(game.boss.model_root.get_child_count() > 0, "ModelRoot actually contains the instanced model")
+ check(game.boss.model_root.scale.is_equal_approx(Vector3.ONE * CityBoss.BOSS_MODEL_SCALE), "the model is scaled by BOSS_MODEL_SCALE (~2x the previous graybox silhouette)")
+ check(is_instance_valid(game.boss.eye_emitter), "EyeLaserEmitter marker exists")
+ check(is_instance_valid(game.boss.launch_port_left) and is_instance_valid(game.boss.launch_port_right), "RobotLaunchLeft/RobotLaunchRight markers exist")
+ check(game.boss.eye_emitter.get_parent() == game.boss.model_root, "the eye emitter is hull-relative (a child of ModelRoot), so it moves/scales with the real model")
+
+ # Eye charge follows the same 3-blink warning PATH_BLOCK/LASER_PLANE
+ # already use — never a new timing system.
+ game.boss.start_pattern(CityBoss.PATTERN_PATH_BLOCK)
+ check(game.boss.eye_glow_material.emission_energy_multiplier == CityBoss.EYE_IDLE_ENERGY, "the eye is idle right as a fresh telegraph starts")
+ var seen_stage: int = -1
+ var stage_before_beam: float = -1.0
+ var step: float = 1.0 / 60.0
+ var t: float = 0.0
+ while game.boss.pattern_phase == CityBoss.PHASE_TELEGRAPH:
+  game.boss.phase_timer -= step
+  game.boss.tick_pattern_visual()
+  t += step
+  if game.boss.warning_pulse > seen_stage:
+   seen_stage = game.boss.warning_pulse
+   check(is_equal_approx(game.boss.eye_glow_material.emission_energy_multiplier, CityBoss.EYE_CHARGE_ENERGY[seen_stage]), "eye charge energy steps to stage %d exactly with warning blink %d" % [seen_stage, seen_stage])
+   check(game.boss.eye_glow_material.albedo_color.a > 0.0, "eye charge stage %d is visible through alpha transparency" % seen_stage)
+  if game.boss.phase_timer <= 0.000001:
+   game.boss.pattern_phase = CityBoss.PHASE_ACTIVE
+   game.boss.phase_timer = game.boss.active_duration(game.boss.pattern)
+   stage_before_beam = game.boss.eye_glow_material.emission_energy_multiplier
+   game.boss.set_pattern_collision(true)
+   break
+ check(seen_stage == CityBoss.WARNING_BLINK_COUNT - 1, "the eye reaches every one of the 3 charge stages before the hazard goes active")
+ check(stage_before_beam > 0.0, "fixture: the eye was genuinely charged (not idle) right before the beam fires")
+
+ # The beam fires exactly at TELEGRAPH->ACTIVE, targets the hazard's own
+ # real center, and follows the eye's live (moving) position every frame.
+ check(is_instance_valid(game.boss.beam_node), "a beam exists as soon as the hazard goes ACTIVE")
+ check(game.boss.beam_target_node == game.boss.block_node, "the beam's target is the same node the hazard's own collision is centered on (PATH_BLOCK)")
+ check(game.boss.eye_glow_material.emission_energy_multiplier == CityBoss.EYE_FLASH_ENERGY, "the eye flashes to its brightest the instant the beam fires")
+ check(game.boss.eye_glow_material.albedo_color.a > 0.0, "eye activation flash has visible opacity")
+ var boss_pos_before: Vector3 = game.boss.global_position
+ game.boss.global_position += Vector3(3, 0, 0) # simulate the boss's own hover drift mid-beam
+ game.boss.tick_pattern_visual()
+ var beam_pos_after_move: Vector3 = game.boss.beam_node.global_position
+ check(not beam_pos_after_move.is_equal_approx(boss_pos_before), "the beam re-centers itself as soon as the eye (the boss) moves, rather than staying frozen at its spawn transform")
+ game.boss.global_position = boss_pos_before
+
+ # RECOVERY (ACTIVE -> collision off) removes the beam and resets the eye.
+ game.boss.set_pattern_collision(false)
+ check(not is_instance_valid(game.boss.beam_node), "the beam is removed the instant the hazard's ACTIVE window ends")
+ check(game.boss.eye_glow_material.emission_energy_multiplier == CityBoss.EYE_IDLE_ENERGY, "the eye returns to idle once the hazard is no longer active")
+ check(is_zero_approx(game.boss.eye_glow_material.albedo_color.a), "eye overlay becomes transparent again after recovery")
+
+ # LASER_PLANE gets the exact same beam wiring, targeting laser_node instead.
+ await fixture()
+ game.city.practice = false
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.rider.position = Vector3(0, 5, -200)
+ game.boss.start_pattern(CityBoss.PATTERN_LASER_PLANE)
+ game.boss.pattern_phase = CityBoss.PHASE_ACTIVE
+ game.boss.set_pattern_collision(true)
+ check(is_instance_valid(game.boss.beam_node) and game.boss.beam_target_node == game.boss.laser_node, "LASER_PLANE also fires a beam, targeting laser_node's own real center")
+
+ # A mid-beam ESCAPE must clean up the beam/eye glow immediately, same as
+ # every other pattern node (cleanup_pattern_nodes() already owns this).
+ game.boss.start_escape()
+ check(not is_instance_valid(game.boss.beam_node), "starting ESCAPE mid-beam removes the beam immediately")
+ check(game.boss.eye_glow_material.emission_energy_multiplier == CityBoss.EYE_IDLE_ENERGY, "starting ESCAPE mid-beam resets the eye to idle immediately")
+ check(is_zero_approx(game.boss.eye_glow_material.albedo_color.a), "escape hides the charged eye overlay immediately")
+
+ # Engine glow eases toward a real target across INTRO and stays fully off
+ # (0) before the boss ever becomes visible.
+ await fixture()
+ game.city.practice = false
+ check(game.boss.engine_glow_energy == 0.0, "engine glow starts fully off before the boss ever appears")
+ advance_boss(DifficultyDirector.CITY_BOSS_START_DISTANCE, 0.5)
+ check(game.boss.engine_glow_energy > 0.0 and game.boss.engine_glow_energy < CityBoss.ENGINE_GLOW_ACTIVE_ENERGY, "engine glow eases up gradually during INTRO rather than snapping instantly")
+
+ # A full launch cycle (Robot Barrage) must not crash and must leave the
+ # hull-relative launch markers untouched (cosmetic-only flash/trail).
+ await fixture()
+ game.city.practice = false
+ game.rider.position = Vector3(0, 5, -200)
+ game.boss.rider = game.rider
+ game.boss.city = game.city
+ game.boss.global_position = game.boss.boss_target_position()
+ for x in CityBoss.ROBOT_LAUNCH_X:
+  game.boss.spawn_robot(x)
+ check(game.boss.barrage_robots.size() == 3, "spawning all 3 barrage robots alongside the new launch-port VFX still produces exactly 3 tracked robots")
+ check(is_instance_valid(game.boss.launch_port_left) and is_instance_valid(game.boss.launch_port_right), "the launch port markers themselves are never freed by a launch flash")
 
 func runtime_regressions() -> void:
  # Exercise Main's real floating-origin branch while each laser and an
@@ -579,13 +748,53 @@ func runtime_regressions() -> void:
  for x in CityBoss.ROBOT_LAUNCH_X:
   game.boss.spawn_robot(x)
   var robot: Node3D = game.boss.barrage_robots.back()
-  check(robot.global_position.distance_to(game.boss.global_position) < 5.0, "robot %.1f launches from the boss hull, not a random detached height" % x)
+  # Threshold matches the boss visual pass's ~2x-larger real hull (see
+  # CityBoss.BOSS_MODEL_SCALE) — ROBOT_LAUNCH_X's own +-3.7m band plus the
+  # launch port's own hull-relative offset now reaches up to ~5.23m from the
+  # boss origin at the widest band; 6.0m keeps this "still visibly attached
+  # to the hull, not a random detached spawn" without being loose.
+  check(robot.global_position.distance_to(game.boss.global_position) < 6.0, "robot %.1f launches from the boss hull, not a random detached height" % x)
 
- for name in [CityBoss.PATTERN_PATH_BLOCK, CityBoss.PATTERN_LASER_PLANE]:
+ # Exercise both alternating height halves as well as the unchanged side laser.
+ for name in [CityBoss.PATTERN_PATH_BLOCK, CityBoss.PATTERN_LASER_PLANE, CityBoss.PATTERN_LASER_PLANE]:
   game.boss.cleanup_pattern_nodes()
   game.boss.start_pattern(name)
+  var hazard: Area3D = game.boss.block_node if name == CityBoss.PATTERN_PATH_BLOCK else game.boss.laser_node
+  var warning_frames: int = 0
+  var harmless_warning: bool = true
+  var blink_edges: Array[float] = []
+  var last_visible: bool = false
+  var warning_cues: Array[float] = []
+  var record_cue: Callable = func(cue_name: String):
+   if cue_name == "warning":
+    warning_cues.append(game.boss.telegraph_duration(name) - game.boss.phase_timer)
+  game.boss.cue.connect(record_cue)
   while game.boss.pattern_phase == CityBoss.PHASE_TELEGRAPH:
+   harmless_warning = harmless_warning and not hazard.monitoring
+   warning_frames += 1
    game.boss.update_current_pattern(1.0 / 60.0)
+   if game.boss.pattern_phase == CityBoss.PHASE_TELEGRAPH:
+    var visible_now: bool = hazard.get_child(0).visible
+    if visible_now != last_visible:
+     blink_edges.append(warning_frames / 60.0)
+    last_visible = visible_now
+  game.boss.cue.disconnect(record_cue)
+  # PATH_BLOCK now runs its warning at the same EXTENDED_WARNING_TIME_SCALE
+  # cadence as LASER_PLANE (both stretched, no more per-pattern branch) —
+  # same 98 ticks / 0.27s half-blink for either pattern.
+  var expected_frames: int = 98
+  var expected_half_blink: float = 0.27
+  check(warning_frames == expected_frames, "%s activates after %d warning ticks at 60Hz (got %d)" % [name, expected_frames, warning_frames])
+  check(harmless_warning, "%s remains harmless throughout every warning tick" % name)
+  check(hazard.monitoring, "%s enables collision when its warning finishes" % name)
+  var correct_blinks: bool = blink_edges.size() == 6
+  for edge in blink_edges.size():
+   correct_blinks = correct_blinks and absf(blink_edges[edge] - edge * expected_half_blink) <= 1.0 / 60.0 + 0.00001
+  check(correct_blinks, "%s shows three complete blinks at the intended cadence: %s" % [name, blink_edges])
+  var correct_cues: bool = warning_cues.size() == 3
+  for pulse in warning_cues.size():
+   correct_cues = correct_cues and absf(warning_cues[pulse] - pulse * expected_half_blink * 2.0) <= 1.0 / 60.0 + 0.00001
+  check(correct_cues, "%s synchronizes three warning sounds with the blinks" % name)
   var active_frames: int = 0
   while game.boss.pattern_phase == CityBoss.PHASE_ACTIVE:
    active_frames += 1
@@ -608,6 +817,9 @@ func runtime_regressions() -> void:
  game.city.update_vehicles(30.0)
  check(rest_vehicle_count() == 0, "traffic from before the Rest Area cannot drive into it")
  game.city.update_chunks(5050)
+ # Runtime streaming now ends at City. Construct a hypothetical external
+ # source explicitly to retain the swept Rest Area boundary regression.
+ game.city.create_chunk(80)
  var oncoming: Node3D = game.city.spawn_vehicle(game.city.chunks[80], 0, Vector3(-3.4, 0, -20), 1.0)
  check(is_instance_valid(oncoming), "fixture: an oncoming car exists beyond the Rest Area exit")
  game.city.update_vehicles(40.0)
