@@ -20,6 +20,10 @@ var city: Node3D
 var wasteland: Node3D
 var rider: CharacterBody3D
 var boss: Node3D
+## PHASE W-C: exposed so Wasteland.apply_environment() can blend the shared
+## fog toward/away from Dust Zone (see setup_environment()/create_world()) —
+## everything else about the Environment stays owned/created here.
+var environment: Environment
 var camera: Camera3D
 var hud: Control
 var phase: String = "menu"
@@ -88,7 +92,8 @@ func _ready() -> void:
 
 func setup_environment() -> void:
  var world := WorldEnvironment.new()
- var env := Environment.new()
+ environment = Environment.new()
+ var env := environment
  # A real clear-sky HDRI instead of a flat color or procedural gradient —
  # kloofendal_43d_clear_puresky by Poly Haven (CC0), see THIRD_PARTY_NOTICES.md.
  env.background_mode = Environment.BG_SKY
@@ -165,6 +170,7 @@ func create_world(practice: bool) -> void:
  wasteland = Wasteland.new()
  add_child(wasteland)
  city.extra_target_roots = [wasteland]
+ wasteland.bind_environment(environment)
  rider = Rider.new()
  rider.city = city
  add_child(rider)
@@ -293,6 +299,10 @@ func _physics_process(delta: float) -> void:
  # "City가 보이는 채로 Wasteland가 다가오는" transition), with zero special
  # casing here.
  wasteland.update_chunks(distance, rider.anchor)
+ # PHASE W-C: Dust Zone fog blend + Turbine Field blade spin — see
+ # Wasteland.update_events()'s own doc comment. Runs every playing-phase
+ # physics frame, same pairing as City.update_vehicles() right below.
+ wasteland.update_events(delta, distance)
  city.update_vehicles(delta)
  if not training:
   boss.update(delta, distance, rider, city)

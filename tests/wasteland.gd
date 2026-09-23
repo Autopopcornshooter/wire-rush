@@ -150,11 +150,16 @@ func run() -> void:
  await fixture()
  for idx in range(first, first + 40):
   game.wasteland.create_chunk(idx)
- var any_hazard: bool = false
+ # PHASE W-C: Wasteland now has its own native hazard (Turbine Field
+ # blades, same "hazard" meta convention CityBoss.spawn_robot() already
+ # uses) — this check narrows from "no hazard anywhere" to its real original
+ # intent, "no CITY hazard leaks into Wasteland", by confirming any hazard
+ # found only ever appears inside that chunk's own TURBINE event window.
+ var any_unexpected_hazard: bool = false
  for idx in game.wasteland.chunks.keys():
-  if not hazards(game.wasteland.chunks[idx]).is_empty():
-   any_hazard = true
- check(not any_hazard, "no police drone / robot hazard ever spawns in ordinary Wasteland chunks")
+  if not hazards(game.wasteland.chunks[idx]).is_empty() and game.wasteland.event_for_chunk(idx) != Wasteland.EVENT_TURBINE:
+   any_unexpected_hazard = true
+ check(not any_unexpected_hazard, "no police drone / robot hazard ever spawns in Wasteland outside its own Turbine Field event chunks")
 
  await fixture()
  game.city.practice = true

@@ -20,6 +20,8 @@ Invoke-Check 'city-boss' @('--headless','--fixed-fps','60','--path',$projectRoot
 Invoke-Check 'city-completion' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/city_completion.gd','--','--test')
 Invoke-Check 'wasteland' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/wasteland.gd','--','--test')
 Invoke-Check 'wasteland-routes' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/wasteland_routes.gd','--','--test')
+Invoke-Check 'wasteland-events' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/wasteland_events.gd','--','--test')
+Invoke-Check 'wasteland-art' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/wasteland_art.gd','--','--test')
 Invoke-Check 'traversal' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/traversal.gd','--','--test')
 Invoke-Check 'settings-aim' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/settings_aim.gd','--','--test')
 Invoke-Check 'range-obstacle' @('--headless','--fixed-fps','60','--path',$projectRoot,'--script','res://tests/range_obstacle.gd','--','--test')
